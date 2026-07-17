@@ -1,47 +1,47 @@
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
-function Navbar() {
+function Navbar({ onToggleSidebar }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [currentTime, setCurrentTime] = useState(new Date());
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   const handleLogout = () => {
     logout();
-    navigate("/login");
+    navigate("/login", { replace: true });
   };
 
-  return (
-    <nav className="navbar navbar-expand-lg navbar-dark bg-success shadow-sm py-3">
-      <div className="container-fluid px-4">
-        <div className="d-flex align-items-center gap-3">
-          <span className="fs-3">🌴</span>
-          <div>
-            <div className="navbar-brand fw-bold mb-0">La Palmera</div>
-            <small className="text-white-50">Sistema de gestión</small>
-          </div>
-        </div>
+  const initials = user?.nombre
+    ?.split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || "AD";
 
-        <div className="d-flex align-items-center gap-4 ms-auto text-white">
+  return (
+    <nav className="navbar navbar-expand-lg navbar-dark bg-success px-4 shadow-sm" style={{ minHeight: 60 }}>
+      <div className="container-fluid px-0">
+        <button className="btn btn-outline-light btn-sm d-lg-none me-2" onClick={onToggleSidebar}>
+          <i className="bi bi-list"></i>
+        </button>
+
+        <span className="navbar-brand fw-semibold d-lg-none">La Palmera</span>
+
+        <div className="d-flex align-items-center gap-3 ms-auto">
           <div className="text-end d-none d-md-block">
-            <div className="fw-semibold">{user?.name || "Administrador"}</div>
-            <small>{user?.role || "Gerencia"}</small>
+            <div className="text-white small fw-semibold">{user?.nombre || "Administrador"}</div>
+            <div className="text-white-50 small text-capitalize">{user?.rol || "admin"}</div>
           </div>
-          <div className="text-end d-none d-md-block">
-            <div>{currentTime.toLocaleDateString("es-ES")}</div>
-            <small>{currentTime.toLocaleTimeString("es-ES")}</small>
-          </div>
-          <button
-            className="btn btn-outline-light btn-sm"
-            onClick={handleLogout}
+
+          <div
+            className="d-flex align-items-center justify-content-center rounded-circle bg-white text-success fw-bold"
+            style={{ width: 38, height: 38, fontSize: 14 }}
+            title={user?.nombre}
           >
-            Cerrar sesión
+            {initials}
+          </div>
+
+          <button className="btn btn-outline-light btn-sm" onClick={handleLogout} title="Cerrar sesión">
+            <i className="bi bi-box-arrow-right"></i>
           </button>
         </div>
       </div>
