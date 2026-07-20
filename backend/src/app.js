@@ -4,6 +4,8 @@ import authRoutes from "./routes/authRoutes.js";
 import productsRoutes from "./routes/productsRoutes.js";
 import clientRoutes from "./routes/clientRoutes.js";
 import categoryRoutes from "./routes/categoryRoutes.js";
+import providerRoutes from "./routes/providerRoutes.js";
+import compraRoutes from "./routes/compraRoutes.js";
 
 const app = express();
 
@@ -18,5 +20,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/productos", productsRoutes);
 app.use("/api/clientes", clientRoutes);
 app.use("/api/categorias", categoryRoutes);
+app.use("/api/proveedores", providerRoutes);
+app.use("/api/compras", compraRoutes);
 
 export default app;

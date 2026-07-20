@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -8,6 +8,22 @@ function Login() {
   const [form, setForm] = useState({ usuario: "", password: "" });
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState("");
+
+  // Mostrar mensaje de sesión expirada si viene desde el redireccionamiento
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("lapalmera-session-expired");
+      if (raw) {
+        const obj = JSON.parse(raw);
+        if (obj && obj.text) {
+          setError(obj.text);
+        }
+        sessionStorage.removeItem("lapalmera-session-expired");
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
 
   if (isAuthenticated) return <Navigate to="/dashboard" replace />;
 
@@ -32,14 +48,19 @@ function Login() {
 
   return (
     <div className="min-vh-100 d-flex align-items-center justify-content-center bg-success-subtle">
-      <div className="card shadow-lg border-0" style={{ width: 420, borderRadius: 16 }}>
+      <div
+        className="card shadow-lg border-0"
+        style={{ width: 420, borderRadius: 16 }}
+      >
         <div className="card-body p-5">
           <div className="text-center mb-4">
             <div className="mb-3">
               <img src="/favicon.svg" alt="La Palmera" width="64" height="64" />
             </div>
             <h2 className="fw-bold text-success">LA PALMERA</h2>
-            <p className="text-muted small">Sistema de Gestión para Minimarket</p>
+            <p className="text-muted small">
+              Sistema de Gestión para Minimarket
+            </p>
           </div>
 
           {error && (
@@ -107,7 +128,10 @@ function Login() {
             >
               {loading ? (
                 <>
-                  <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                  <span
+                    className="spinner-border spinner-border-sm me-2"
+                    role="status"
+                  ></span>
                   Ingresando...
                 </>
               ) : (

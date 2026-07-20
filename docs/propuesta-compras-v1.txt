@@ -1,0 +1,174 @@
+PROPUESTA DE DISEÑO - MÓDULO COMPRAS v1.0
+======================================
+
+Objetivo
+--------
+Diseñar el módulo Compras para LA PALMERA siguiendo la arquitectura actual del proyecto: backend con Express + MongoDB + Mongoose y frontend con React + Bootstrap.
+
+Arquitectura propuesta
+----------------------
+- Backend:
+  - modelos: Compra, DetalleCompra
+  - servicios: lógica de negocio
+  - controladores: manejo de requests
+  - rutas: endpoints REST
+- Frontend:
+  - vista de listado
+  - vista de formulario
+  - vista de detalle
+
+1. Modelo Compra
+----------------
+Campos recomendados:
+- proveedor: ObjectId -> Provider
+- fechaCompra: Date
+- tipoDocumento: String
+- numeroDocumento: String
+- folioInterno: String
+- estado: String (borrador, confirmada, anulada)
+- subtotal: Number
+- descuento: Number
+- iva: Number
+- total: Number
+- formaPago: String
+- observaciones: String
+- usuario: ObjectId -> User
+- createdAt, updatedAt
+
+2. Modelo DetalleCompra
+-----------------------
+Campos recomendados:
+- compra: ObjectId -> Compra
+- producto: ObjectId -> Product
+- cantidad: Number
+- precioCompraUnitario: Number
+- descuentoLinea: Number
+- subtotal: Number
+- stockAnterior: Number
+- stockNuevo: Number
+- observaciones: String
+
+3. Relaciones entre documentos
+------------------------------
+- Una Compra tiene muchos DetalleCompra.
+- Cada DetalleCompra pertenece a un Producto.
+- Cada Compra pertenece a un Proveedor.
+
+4. Flujo completo de compra
+---------------------------
+1. El usuario crea una compra en estado borrador.
+2. Selecciona un proveedor.
+3. Agrega líneas con productos y cantidades.
+4. Confirma la compra.
+5. El sistema valida la información.
+6. Se ejecuta una transacción que:
+   - crea la compra,
+   - crea los detalles,
+   - actualiza stockActual en cada producto,
+   - actualiza el último precio de compra.
+7. La compra cambia a confirmada.
+8. El inventario refleja el nuevo stock.
+
+5. Validaciones de negocio
+--------------------------
+- El proveedor es obligatorio.
+- Debe existir al menos un detalle.
+- Cada detalle debe tener producto, cantidad y precio unitario.
+- Cantidad mayor a 0.
+- Precio de compra mayor a 0.
+- El producto debe existir y estar activo.
+- No duplicar el mismo producto en una misma compra.
+- El total debe ser mayor a 0.
+- Una compra confirmada no debe poder editarse desde la UI.
+
+6. Qué información debe guardar una compra
+------------------------------------------
+- Proveedor
+- Fecha
+- Tipo y número de documento
+- Productos comprados
+- Cantidades
+- Precios unitarios
+- Descuentos
+- Subtotal, IVA y total
+- Forma de pago
+- Observaciones
+- Estado
+- Usuario que registró la compra
+
+7. Actualización de stockActual
+-------------------------------
+La regla recomendada es:
+- stockActual = stockActual + cantidad
+
+Además:
+- guardar stockAnterior y stockNuevo por línea
+- actualizar el precio de compra del producto si corresponde
+
+8. Operaciones dentro de una transacción
+---------------------------------------
+Para evitar inconsistencias, la operación completa debe ejecutarse dentro de una transacción de MongoDB:
+- crear la compra
+- crear los detalles
+- actualizar stock de cada producto
+- actualizar datos del producto si aplica
+- si falla algo, hacer rollback completo
+
+9. Endpoints necesarios
+-----------------------
+- GET /api/compras
+- GET /api/compras/:id
+- POST /api/compras
+- PUT /api/compras/:id
+- PATCH /api/compras/:id/confirmar
+- PATCH /api/compras/:id/anular (futuro / opcional)
+- GET /api/compras/stats
+
+También se recomienda soporte para filtros por:
+- proveedor
+- estado
+- rango de fechas
+- búsqueda por número de documento
+
+10. Pantallas del frontend
+--------------------------
+1. Lista de compras
+   - búsqueda
+   - filtros
+   - paginación
+   - botón para nueva compra
+
+2. Formulario de compra
+   - selector de proveedor
+   - fecha
+   - tipo y número de documento
+   - tabla de productos
+   - agregar/quitar líneas
+   - subtotal, descuento y total
+   - observaciones
+   - botón confirmar compra
+
+3. Vista de detalle de compra
+   - resumen
+   - listado de productos
+   - estado de la compra
+
+Integración con módulos existentes
+----------------------------------
+- Productos:
+  - la compra modifica stockActual
+  - el producto queda relacionado por detalle
+- Proveedores:
+  - la compra se asocia a un proveedor real
+- Inventario:
+  - el stock se toma desde Product.stockActual
+- Ventas futuras:
+  - las ventas descontarán stock desde el mismo campo, manteniendo consistencia
+
+Recomendación final
+-------------------
+Para una versión 1.0 profesional, la propuesta más sólida es:
+- usar una compra como cabecera
+- usar DetalleCompra como líneas
+- actualizar stock en una transacción
+- mantener stockActual en Product como fuente única de verdad del inventario

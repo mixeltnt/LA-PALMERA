@@ -5,7 +5,9 @@ export async function getProducts(req, res) {
     const result = await productService.listar(req.query);
     res.json(result);
   } catch (error) {
-    res.status(500).json({ mensaje: "Error al obtener productos." });
+    res
+      .status(500)
+      .json({ mensaje: "Error al obtener productos.", error: error.message });
   }
 }
 
@@ -25,9 +27,13 @@ export async function createProduct(req, res) {
     res.status(201).json(producto);
   } catch (error) {
     if (error.errores) {
-      return res.status(400).json({ mensaje: "Datos inválidos.", errores: error.errores });
+      return res
+        .status(400)
+        .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
-    res.status(500).json({ mensaje: "Error al crear producto." });
+    res
+      .status(500)
+      .json({ mensaje: "Error al crear producto.", error: error.message });
   }
 }
 
@@ -37,7 +43,9 @@ export async function updateProduct(req, res) {
     res.json(producto);
   } catch (error) {
     if (error.errores) {
-      return res.status(400).json({ mensaje: "Datos inválidos.", errores: error.errores });
+      return res
+        .status(400)
+        .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     const status = error.message === "Producto no encontrado." ? 404 : 500;
     res.status(status).json({ mensaje: error.message });
@@ -59,6 +67,11 @@ export async function getProductStats(req, res) {
     const stats = await productService.obtenerStats();
     res.json(stats);
   } catch (error) {
-    res.status(500).json({ mensaje: "Error al obtener estadísticas." });
+    res
+      .status(500)
+      .json({
+        mensaje: "Error al obtener estadísticas.",
+        error: error.message,
+      });
   }
 }

@@ -1,7 +1,9 @@
 const API_URL = "/api";
 
 async function request(endpoint, options = {}) {
-  const token = localStorage.getItem("lapalmera-token") || sessionStorage.getItem("lapalmera-token");
+  const token =
+    localStorage.getItem("lapalmera-token") ||
+    sessionStorage.getItem("lapalmera-token");
 
   const config = {
     headers: {
@@ -17,10 +19,48 @@ async function request(endpoint, options = {}) {
   }
 
   const res = await fetch(`${API_URL}${endpoint}`, config);
-  const data = await res.json();
+
+  let data = null;
+  try {
+    data = await res.json();
+  } catch (e) {
+    // ignore json parse errors
+  }
 
   if (!res.ok) {
-    throw new Error(data.mensaje || "Error en la solicitud");
+    // Handle 401: clear session and redirect to login with friendly message
+    if (res.status === 401) {
+      try {
+        localStorage.removeItem("lapalmera-token");
+        localStorage.removeItem("lapalmera-user");
+        sessionStorage.removeItem("lapalmera-token");
+        sessionStorage.removeItem("lapalmera-user");
+      } catch (e) {
+        // ignore
+      }
+      const friendly = "Tu sesión ha expirado. Inicia sesión nuevamente.";
+      try {
+        sessionStorage.setItem(
+          "lapalmera-session-expired",
+          JSON.stringify({ text: friendly }),
+        );
+      } catch (e) {}
+      // redirect to login
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
+      const err = new Error(friendly);
+      err.status = 401;
+      err.errores = [friendly];
+      throw err;
+    }
+
+    const message =
+      (data && (data.mensaje || data.message)) || "Error en la solicitud";
+    const err = new Error(message);
+    err.status = res.status;
+    err.errores = (data && (data.errores || data.errors)) || null;
+    throw err;
   }
 
   return data;
