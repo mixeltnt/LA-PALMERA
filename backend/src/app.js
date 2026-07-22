@@ -6,6 +6,7 @@ import clientRoutes from "./routes/clientRoutes.js";
 import categoryRoutes from "./routes/categoryRoutes.js";
 import providerRoutes from "./routes/providerRoutes.js";
 import compraRoutes from "./routes/compraRoutes.js";
+import ventaRoutes from "./routes/ventaRoutes.js";
 
 const app = express();
 
@@ -22,5 +23,6 @@ app.use("/api/clientes", clientRoutes);
 app.use("/api/categorias", categoryRoutes);
 app.use("/api/proveedores", providerRoutes);
 app.use("/api/compras", compraRoutes);
+app.use("/api/ventas", ventaRoutes);
 
 export default app;
