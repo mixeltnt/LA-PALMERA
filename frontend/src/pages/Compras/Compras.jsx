@@ -165,14 +165,19 @@ function Compras() {
     try {
       const payload = {
         ...form,
-        estado: confirmar ? "CONFIRMADA" : "BORRADOR",
+        estado: "BORRADOR",
         total: calcularTotal(),
       };
       if (editingId) {
         await compraService.actualizar(editingId, payload);
+        if (confirmar) {
+          await compraService.confirmar(editingId);
+        }
         setToast({
           type: "success",
-          text: "Compra actualizada correctamente.",
+          text: confirmar
+            ? "Compra confirmada correctamente."
+            : "Compra actualizada correctamente.",
         });
       } else {
         const creada = await compraService.crear(payload);
@@ -190,7 +195,16 @@ function Compras() {
       setForm({ ...emptyForm, productos: [{ ...emptyLine }] });
       cargar();
     } catch (err) {
-      setError(err.message || "Error al guardar la compra.");
+      const detalle =
+        (Array.isArray(err.errores) &&
+          err.errores.length &&
+          err.errores.join(" ")) ||
+        (Array.isArray(err.errors) &&
+          err.errors.length &&
+          err.errors.join(" ")) ||
+        err.message ||
+        "Error al guardar la compra.";
+      setError(detalle);
     } finally {
       setSaving(false);
     }
