@@ -7,6 +7,7 @@ import Inventario from "../pages/Inventario/Inventario";
 import Productos from "../pages/Productos/Productos";
 import Categorias from "../pages/Categorias/Categorias";
 import Ventas from "../pages/Ventas/Ventas";
+import HistorialVentas from "../pages/Ventas/HistorialVentas";
 import Compras from "../pages/Compras/Compras";
 import Clientes from "../pages/Clientes/Clientes";
 import Proveedores from "../pages/Proveedores/Proveedores";
@@ -21,12 +22,13 @@ function AppRoutes() {
 
       <Route element={<ProtectedRoute />}>
         <Route element={<MainLayout />}>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<Navigate to="/ventas" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/inventario" element={<Inventario />} />
           <Route path="/productos" element={<Productos />} />
           <Route path="/categorias" element={<Categorias />} />
           <Route path="/ventas" element={<Ventas />} />
+          <Route path="/ventas/historial" element={<HistorialVentas />} />
           <Route path="/compras" element={<Compras />} />
           <Route path="/clientes" element={<Clientes />} />
           <Route path="/proveedores" element={<Proveedores />} />

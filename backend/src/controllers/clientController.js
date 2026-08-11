@@ -1,4 +1,5 @@
 import * as clientService from "../services/clientService.js";
+import * as movimientoCuentaService from "../services/movimientoCuentaService.js";
 
 export async function getClients(req, res) {
   try {
@@ -25,7 +26,9 @@ export async function createClient(req, res) {
     res.status(201).json(cliente);
   } catch (error) {
     if (error.errores) {
-      return res.status(400).json({ mensaje: "Datos inválidos.", errores: error.errores });
+      return res
+        .status(400)
+        .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     res.status(500).json({ mensaje: "Error al crear cliente." });
   }
@@ -37,7 +40,9 @@ export async function updateClient(req, res) {
     res.json(cliente);
   } catch (error) {
     if (error.errores) {
-      return res.status(400).json({ mensaje: "Datos inválidos.", errores: error.errores });
+      return res
+        .status(400)
+        .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     const status = error.message === "Cliente no encontrado." ? 404 : 500;
     res.status(status).json({ mensaje: error.message });
@@ -60,5 +65,50 @@ export async function getClientStats(req, res) {
     res.json(stats);
   } catch (error) {
     res.status(500).json({ mensaje: "Error al obtener estadísticas." });
+  }
+}
+
+export async function getClientMovimientos(req, res) {
+  try {
+    const data = await movimientoCuentaService.listarPorCliente(req.params.id);
+    res.json(data);
+  } catch (error) {
+    const status =
+      error.message === "Cliente no encontrado." ||
+      error.message === "El cliente seleccionado no es válido."
+        ? 404
+        : error.status || 500;
+    res.status(status).json({ mensaje: error.message });
+  }
+}
+
+export async function getClienteSaldo(req, res) {
+  try {
+    const data = await movimientoCuentaService.obtenerResumenSaldo(
+      req.params.id,
+    );
+    res.json(data);
+  } catch (error) {
+    const status = error.message === "Cliente no encontrado." ? 404 : 500;
+    res.status(status).json({ mensaje: error.message });
+  }
+}
+
+export async function registrarAbono(req, res) {
+  try {
+    const movimiento = await movimientoCuentaService.registrarAbono({
+      clienteId: req.params.id,
+      monto: req.body.monto,
+      usuarioId: req.usuario._id,
+      observacion: req.body.observacion,
+    });
+    res.status(201).json(movimiento);
+  } catch (error) {
+    if (error.errores) {
+      return res
+        .status(400)
+        .json({ mensaje: "Datos inválidos.", errores: error.errores });
+    }
+    res.status(500).json({ mensaje: "Error al registrar el abono." });
   }
 }

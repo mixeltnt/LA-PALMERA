@@ -11,6 +11,8 @@ const emptyForm = {
   descuento: "0",
 };
 
+const METODO_FIADO = "FIADO";
+
 function Ventas() {
   const { user } = useAuth();
   const [productos, setProductos] = useState([]);
@@ -25,6 +27,18 @@ function Ventas() {
   const [toast, setToast] = useState(null);
   const [ventaId, setVentaId] = useState(null);
   const [numeroVenta, setNumeroVenta] = useState(null);
+  const [saldoCliente, setSaldoCliente] = useState(null);
+  const [loadingSaldo, setLoadingSaldo] = useState(false);
+  const [scanner, setScanner] = useState("");
+  const [showCobro, setShowCobro] = useState(false);
+  const [montoRecibido, setMontoRecibido] = useState("");
+  const [showNuevoCliente, setShowNuevoCliente] = useState(false);
+  const [nuevoCliente, setNuevoCliente] = useState({
+    nombre: "",
+    rut: "",
+    telefono: "",
+  });
+  const [guardandoCliente, setGuardandoCliente] = useState(false);
 
   const formatPrice = useCallback((value) => {
     const numeric = Number(value) || 0;
@@ -92,6 +106,38 @@ function Ventas() {
     const calculated = subtotal - descuento;
     return calculated > 0 ? calculated : 0;
   }, [subtotal, descuento]);
+
+  const esFiado = form.metodoPago === METODO_FIADO;
+
+  useEffect(() => {
+    if (!esFiado || !form.cliente) {
+      setSaldoCliente(null);
+      return;
+    }
+
+    let activo = true;
+    setLoadingSaldo(true);
+    clientService
+      .obtenerSaldo(form.cliente)
+      .then((data) => {
+        if (activo) setSaldoCliente(data);
+      })
+      .catch(() => {
+        if (activo) setSaldoCliente(null);
+      })
+      .finally(() => {
+        if (activo) setLoadingSaldo(false);
+      });
+
+    return () => {
+      activo = false;
+    };
+  }, [esFiado, form.cliente]);
+
+  const clienteSeleccionado = useMemo(
+    () => clientes.find((cliente) => cliente._id === form.cliente) || null,
+    [clientes, form.cliente],
+  );
 
   const handleFormChange = (e) => {
     const { name, value } = e.target;
@@ -167,6 +213,121 @@ function Ventas() {
     setCart((prev) => prev.filter((item) => item._id !== id));
   };
 
+  const buscarScanner = async () => {
+    const codigo = scanner.trim();
+    if (!codigo) return;
+
+    try {
+      const data = await productService.listar({
+        search: codigo,
+        limit: 10,
+        activo: "true",
+      });
+      const encontrado = (data.productos || []).find(
+        (producto) =>
+          producto.codigoBarras === codigo || producto.codigo === codigo,
+      );
+
+      if (!encontrado) {
+        setError(`No se encontró el producto con código "${codigo}".`);
+        setScanner("");
+        return;
+      }
+
+      agregarProducto(encontrado);
+      setError("");
+      setScanner("");
+    } catch {
+      setError("Error al buscar el código de barras.");
+      setScanner("");
+    }
+  };
+
+  const abrirCobro = () => {
+    const errores = validarFormulario();
+    if (errores.length > 0) {
+      setError(errores.join(". "));
+      return;
+    }
+
+    setMontoRecibido("");
+    setShowCobro(true);
+  };
+
+  const ejecutarConfirmacion = async () => {
+    setSaving(true);
+    try {
+      const payload = construirPayload();
+      let idVenta = ventaId;
+
+      if (idVenta) {
+        const actualizada = await ventaService.actualizar(idVenta, payload);
+        idVenta = actualizada._id;
+      } else {
+        const creada = await ventaService.crear(payload);
+        idVenta = creada._id;
+        setNumeroVenta(creada.numeroVenta ?? null);
+      }
+
+      await ventaService.confirmar(idVenta);
+      setShowCobro(false);
+      setToast({ type: "success", text: "Venta confirmada correctamente." });
+      limpiarFormulario();
+    } catch (err) {
+      setError(err.message || "Error al confirmar la venta.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fijarMontoRecibido = (valor) => setMontoRecibido(String(valor));
+
+  const sumarMontoRecibido = (valor) =>
+    setMontoRecibido((prev) =>
+      String((Number(prev) || 0) + valor),
+    );
+
+  const recibido = Number(montoRecibido) || 0;
+  const vuelto = recibido - total;
+  const cobroEfectivoValido =
+    montoRecibido !== "" && recibido >= total;
+
+  const handleNuevoClienteChange = (e) => {
+    const { name, value } = e.target;
+    setNuevoCliente((prev) => ({ ...prev, [name]: value }));
+    setError("");
+  };
+
+  const guardarNuevoCliente = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (!nuevoCliente.nombre.trim()) {
+      setError("El nombre del cliente es obligatorio.");
+      return;
+    }
+
+    setGuardandoCliente(true);
+    try {
+      const creado = await clientService.crear({
+        nombre: nuevoCliente.nombre.trim(),
+        rut: nuevoCliente.rut.trim(),
+        telefono: nuevoCliente.telefono.trim(),
+        activo: true,
+      });
+
+      setClientes((prev) => [creado, ...prev]);
+      setForm((prev) => ({ ...prev, cliente: creado._id }));
+      setNuevoCliente({ nombre: "", rut: "", telefono: "" });
+      setShowNuevoCliente(false);
+      setToast({ type: "success", text: "Cliente creado y seleccionado." });
+    } catch (err) {
+      setError(err.message || "Error al crear el cliente.");
+    } finally {
+      setGuardandoCliente(false);
+    }
+  };
+
   const validarFormulario = () => {
     const errores = [];
 
@@ -184,6 +345,25 @@ function Ventas() {
 
     if (!form.metodoPago.trim()) {
       errores.push("El método de pago es obligatorio.");
+    }
+
+    if (esFiado && !form.cliente) {
+      errores.push(
+        "Una venta fiada requiere seleccionar un cliente registrado.",
+      );
+    }
+
+    if (esFiado && form.cliente && saldoCliente) {
+      const limite = Number(saldoCliente.limiteFiado || 0);
+      if (limite <= 0) {
+        errores.push(
+          "El cliente no tiene límite de fiado configurado. Configúralo al editar el cliente.",
+        );
+      } else if (total > Number(saldoCliente.disponible || 0)) {
+        errores.push(
+          `El total supera el crédito disponible del cliente (disponible: ${formatPrice(saldoCliente.disponible)}).`,
+        );
+      }
     }
 
     cart.forEach((item, index) => {
@@ -252,41 +432,15 @@ function Ventas() {
     }
   };
 
-  const confirmarVenta = async () => {
-    const errores = validarFormulario();
-    if (errores.length > 0) {
-      setError(errores.join(". "));
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const payload = construirPayload();
-      let idVenta = ventaId;
-
-      if (idVenta) {
-        const actualizada = await ventaService.actualizar(idVenta, payload);
-        idVenta = actualizada._id;
-      } else {
-        const creada = await ventaService.crear(payload);
-        idVenta = creada._id;
-        setNumeroVenta(creada.numeroVenta ?? null);
-      }
-
-      await ventaService.confirmar(idVenta);
-      setToast({ type: "success", text: "Venta confirmada correctamente." });
-      limpiarFormulario();
-    } catch (err) {
-      setError(err.message || "Error al confirmar la venta.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const cancelar = () => {
     limpiarFormulario();
     setToast({ type: "secondary", text: "La venta fue cancelada." });
   };
+
+  const formatoMoneda = useCallback((value) => {
+    const numeric = Number(value) || 0;
+    return `$${numeric.toLocaleString("es-CL")}`;
+  }, []);
 
   return (
     <div>
@@ -339,6 +493,25 @@ function Ventas() {
                   placeholder="Buscar por código, nombre o marca..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+
+              <div className="input-group mb-3">
+                <span className="input-group-text bg-white">
+                  <i className="bi bi-upc-scan"></i>
+                </span>
+                <input
+                  className="form-control"
+                  placeholder="Código de barras (escanea y presiona Enter)..."
+                  value={scanner}
+                  onChange={(e) => setScanner(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void buscarScanner();
+                    }
+                  }}
+                  autoFocus
                 />
               </div>
 
@@ -420,20 +593,35 @@ function Ventas() {
 
               <div className="mb-3">
                 <label className="form-label small text-muted">Cliente</label>
-                <select
-                  className="form-select"
-                  name="cliente"
-                  value={form.cliente}
-                  onChange={handleFormChange}
-                  disabled={loadingClientes}
-                >
-                  <option value="">Consumidor Final</option>
-                  {clientes.map((cliente) => (
-                    <option key={cliente._id} value={cliente._id}>
-                      {cliente.nombre} - {cliente.rut}
-                    </option>
-                  ))}
-                </select>
+                <div className="input-group">
+                  <select
+                    className="form-select"
+                    name="cliente"
+                    value={form.cliente}
+                    onChange={handleFormChange}
+                    disabled={loadingClientes}
+                  >
+                    <option value="">Consumidor Final</option>
+                    {clientes.map((cliente) => (
+                      <option key={cliente._id} value={cliente._id}>
+                        {cliente.nombre} - {cliente.rut}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-outline-success"
+                    title="Nuevo cliente exprés"
+                    onClick={() => setShowNuevoCliente(true)}
+                  >
+                    <i className="bi bi-person-plus"></i>
+                  </button>
+                </div>
+                {esFiado && (
+                  <div className="small text-muted mt-1">
+                    La venta fiada requiere cliente obligatorio.
+                  </div>
+                )}
               </div>
 
               <div className="mb-3">
@@ -451,8 +639,74 @@ function Ventas() {
                   <option value="CREDITO">Crédito</option>
                   <option value="TRANSFERENCIA">Transferencia</option>
                   <option value="CAJA_VECINA">Caja Vecina</option>
+                  <option value="FIADO">FIADO</option>
                 </select>
               </div>
+
+              {esFiado && (
+                <div className="alert alert-warning py-2 small">
+                  <div className="fw-semibold mb-1">Venta fiada</div>
+                  <div>
+                    Cliente:{" "}
+                    <strong>
+                      {clienteSeleccionado?.nombre || "Seleccione un cliente"}
+                    </strong>
+                  </div>
+                  {form.cliente ? (
+                    loadingSaldo ? (
+                      <div className="text-muted">Consultando saldo...</div>
+                    ) : saldoCliente ? (
+                      <>
+                        <div className="d-flex justify-content-between">
+                          <span>Deuda actual</span>
+                          <strong>{formatoMoneda(saldoCliente.saldoPendiente)}</strong>
+                        </div>
+                        <div className="d-flex justify-content-between">
+                          <span>Esta venta</span>
+                          <strong>{formatoMoneda(total)}</strong>
+                        </div>
+                        <div className="d-flex justify-content-between">
+                          <span>Nueva deuda</span>
+                          <strong>
+                            {formatoMoneda(
+                              Number(saldoCliente.saldoPendiente || 0) + total,
+                            )}
+                          </strong>
+                        </div>
+                        <div className="d-flex justify-content-between border-top pt-1 mt-1">
+                          <span>Límite de fiado</span>
+                          <span>{formatoMoneda(saldoCliente.limiteFiado)}</span>
+                        </div>
+                        <div className="d-flex justify-content-between">
+                          <span>Disponible</span>
+                          <span
+                            className={
+                              total > Number(saldoCliente.disponible || 0)
+                                ? "text-danger fw-semibold"
+                                : ""
+                            }
+                          >
+                            {formatoMoneda(saldoCliente.disponible)}
+                          </span>
+                        </div>
+                        {Number(saldoCliente.limiteFiado || 0) <= 0 ? (
+                          <div className="text-danger fw-semibold mt-1">
+                            El cliente no tiene crédito disponible.
+                          </div>
+                        ) : total > Number(saldoCliente.disponible || 0) ? (
+                          <div className="text-danger fw-semibold mt-1">
+                            Esta venta supera el crédito disponible.
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div className="text-danger">
+                        No se pudo consultar el saldo del cliente.
+                      </div>
+                    )
+                  ) : null}
+                </div>
+              )}
 
               <div className="mb-3">
                 <label className="form-label small text-muted">
@@ -576,18 +830,19 @@ function Ventas() {
 
               <div className="d-grid gap-2 mt-4">
                 <button
+                  className="btn btn-success btn-lg"
+                  onClick={abrirCobro}
+                  disabled={saving}
+                >
+                  <i className="bi bi-cash-coin me-1"></i>
+                  Cobrar {formatPrice(total)}
+                </button>
+                <button
                   className="btn btn-outline-success"
                   onClick={guardarBorrador}
                   disabled={saving}
                 >
                   <i className="bi bi-save me-1"></i>Guardar borrador
-                </button>
-                <button
-                  className="btn btn-success"
-                  onClick={confirmarVenta}
-                  disabled={saving}
-                >
-                  <i className="bi bi-check2-circle me-1"></i>Confirmar venta
                 </button>
                 <button
                   className="btn btn-outline-secondary"
@@ -600,6 +855,256 @@ function Ventas() {
           </div>
         </div>
       </div>
+
+      {showCobro && (
+        <div
+          className="modal d-block"
+          tabIndex={-1}
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold">
+                  <i className="bi bi-cash-coin me-2"></i>Cobrar venta
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setShowCobro(false)}
+                  disabled={saving}
+                ></button>
+              </div>
+              <div className="modal-body">
+                {esFiado ? (
+                  <div className="alert alert-warning py-2 small mb-3">
+                    <div className="fw-semibold mb-1">
+                      Venta fiada — {clienteSeleccionado?.nombre || ""}
+                    </div>
+                    {saldoCliente ? (
+                      <>
+                        <div className="d-flex justify-content-between">
+                          <span>Deuda actual</span>
+                          <strong>
+                            {formatoMoneda(saldoCliente.saldoPendiente)}
+                          </strong>
+                        </div>
+                        <div className="d-flex justify-content-between">
+                          <span>Esta venta</span>
+                          <strong>{formatoMoneda(total)}</strong>
+                        </div>
+                        <div className="d-flex justify-content-between">
+                          <span>Nueva deuda</span>
+                          <strong>
+                            {formatoMoneda(
+                              Number(saldoCliente.saldoPendiente || 0) + total,
+                            )}
+                          </strong>
+                        </div>
+                        <div className="d-flex justify-content-between border-top pt-1 mt-1">
+                          <span>Disponible</span>
+                          <strong>{formatoMoneda(saldoCliente.disponible)}</strong>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-danger">
+                        No se pudo consultar el saldo del cliente.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center mb-3">
+                    <div className="small text-muted">Total a cobrar</div>
+                    <div className="display-5 fw-bold text-success">
+                      {formatPrice(total)}
+                    </div>
+                  </div>
+                )}
+
+                {!esFiado && form.metodoPago === "EFECTIVO" && (
+                  <>
+                    <label className="form-label small fw-semibold">
+                      Monto recibido
+                    </label>
+                    <input
+                      type="number"
+                      className="form-control form-control-lg text-center mb-2"
+                      min="0"
+                      step="1"
+                      placeholder="0"
+                      value={montoRecibido}
+                      onChange={(e) => setMontoRecibido(e.target.value)}
+                      autoFocus
+                    />
+                    <div className="d-flex flex-wrap gap-2 mb-3">
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary btn-sm"
+                        onClick={() => fijarMontoRecibido(total)}
+                      >
+                        Exacto
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary btn-sm"
+                        onClick={() => sumarMontoRecibido(5000)}
+                      >
+                        + $5.000
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary btn-sm"
+                        onClick={() => sumarMontoRecibido(10000)}
+                      >
+                        + $10.000
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary btn-sm"
+                        onClick={() => sumarMontoRecibido(20000)}
+                      >
+                        + $20.000
+                      </button>
+                    </div>
+                    <div className="d-flex justify-content-between align-items-center border-top pt-3">
+                      <span className="fw-semibold">Vuelto</span>
+                      <span
+                        className={`fs-3 fw-bold ${
+                          recibido >= total ? "text-primary" : "text-muted"
+                        }`}
+                      >
+                        {montoRecibido === "" || recibido < total
+                          ? "—"
+                          : formatPrice(vuelto)}
+                      </span>
+                    </div>
+                    {montoRecibido !== "" && recibido < total && (
+                      <div className="text-danger small mt-1">
+                        El monto recibido es menor que el total.
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={() => setShowCobro(false)}
+                  disabled={saving}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  onClick={ejecutarConfirmacion}
+                  disabled={
+                    saving ||
+                    (form.metodoPago === "EFECTIVO" && !cobroEfectivoValido)
+                  }
+                >
+                  {saving ? (
+                    <>
+                      <span
+                        className="spinner-border spinner-border-sm me-1"
+                        role="status"
+                      ></span>
+                      Confirmando...
+                    </>
+                  ) : (
+                    "Confirmar cobro"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNuevoCliente && (
+        <div
+          className="modal d-block"
+          tabIndex={-1}
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold">
+                  <i className="bi bi-person-plus me-2"></i>Nuevo cliente exprés
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setShowNuevoCliente(false)}
+                  disabled={guardandoCliente}
+                ></button>
+              </div>
+              <form onSubmit={guardarNuevoCliente} noValidate>
+                <div className="modal-body">
+                  {error && (
+                    <div className="alert alert-danger py-2 small">{error}</div>
+                  )}
+                  <div className="mb-3">
+                    <label className="form-label small fw-semibold">
+                      Nombre *
+                    </label>
+                    <input
+                      className="form-control"
+                      name="nombre"
+                      value={nuevoCliente.nombre}
+                      onChange={handleNuevoClienteChange}
+                      required
+                      placeholder="Nombre completo"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label small fw-semibold">RUT</label>
+                    <input
+                      className="form-control"
+                      name="rut"
+                      value={nuevoCliente.rut}
+                      onChange={handleNuevoClienteChange}
+                      placeholder="12.345.678-9"
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label small fw-semibold">
+                      Teléfono
+                    </label>
+                    <input
+                      className="form-control"
+                      name="telefono"
+                      value={nuevoCliente.telefono}
+                      onChange={handleNuevoClienteChange}
+                      placeholder="+56 9 1234 5678"
+                    />
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={() => setShowNuevoCliente(false)}
+                    disabled={guardandoCliente}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-success"
+                    disabled={guardandoCliente}
+                  >
+                    {guardandoCliente ? "Guardando..." : "Guardar y seleccionar"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

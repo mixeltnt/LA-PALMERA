@@ -9,6 +9,7 @@ const clientSchema = new mongoose.Schema(
     direccion: { type: String, default: "" },
     comuna: { type: String, default: "" },
     observaciones: { type: String, default: "" },
+    limiteFiado: { type: Number, default: 0, min: 0 },
     activo: { type: Boolean, default: true },
   },
   { timestamps: true }

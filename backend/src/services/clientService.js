@@ -1,4 +1,5 @@
 import Client from "../models/clientModel.js";
+import MovimientoCuenta from "../models/movimientoCuentaModel.js";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -13,8 +14,19 @@ function validar(data) {
     errores.push("El RUT del cliente es obligatorio.");
   }
 
-  if (data.email && data.email.trim() !== "" && !EMAIL_REGEX.test(data.email.trim())) {
+  if (
+    data.email &&
+    data.email.trim() !== "" &&
+    !EMAIL_REGEX.test(data.email.trim())
+  ) {
     errores.push("El formato del email no es válido.");
+  }
+
+  if (data.limiteFiado != null && data.limiteFiado !== "") {
+    const limite = Number(data.limiteFiado);
+    if (!Number.isFinite(limite) || limite < 0) {
+      errores.push("El límite de fiado no puede ser negativo.");
+    }
   }
 
   return errores;
@@ -25,11 +37,7 @@ export async function listar(filtros = {}) {
 
   if (filtros.search) {
     const regex = new RegExp(filtros.search, "i");
-    query.$or = [
-      { nombre: regex },
-      { rut: regex },
-      { telefono: regex },
-    ];
+    query.$or = [{ nombre: regex }, { rut: regex }, { telefono: regex }];
   }
 
   if (filtros.activo === "true") query.activo = true;
@@ -83,6 +91,10 @@ export async function crear(data) {
     direccion: data.direccion || "",
     comuna: data.comuna || "",
     observaciones: data.observaciones || "",
+    limiteFiado:
+      data.limiteFiado != null && data.limiteFiado !== ""
+        ? Number(data.limiteFiado)
+        : 0,
     activo: data.activo !== undefined ? data.activo : true,
   });
 
@@ -120,6 +132,10 @@ export async function actualizar(id, data) {
     direccion: data.direccion ?? cliente.direccion,
     comuna: data.comuna ?? cliente.comuna,
     observaciones: data.observaciones ?? cliente.observaciones,
+    limiteFiado:
+      data.limiteFiado != null && data.limiteFiado !== ""
+        ? Number(data.limiteFiado)
+        : cliente.limiteFiado,
     activo: data.activo !== undefined ? data.activo : cliente.activo,
   });
 
@@ -127,6 +143,18 @@ export async function actualizar(id, data) {
 }
 
 export async function eliminar(id) {
+  const movimientos = await MovimientoCuenta.countDocuments({ cliente: id });
+  if (movimientos > 0) {
+    const err = new Error(
+      "No se puede eliminar un cliente con movimientos. Desactívalo en su lugar.",
+    );
+    err.errores = [
+      "No se puede eliminar un cliente con movimientos. Desactívalo en su lugar.",
+    ];
+    err.status = 400;
+    throw err;
+  }
+
   const cliente = await Client.findByIdAndDelete(id);
   if (!cliente) throw new Error("Cliente no encontrado.");
   return cliente;

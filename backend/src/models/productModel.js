@@ -3,7 +3,17 @@ import mongoose from "mongoose";
 const productSchema = new mongoose.Schema(
   {
     codigo: { type: String, required: true, trim: true, unique: true },
-    codigoBarras: { type: String, trim: true, unique: true, sparse: true },
+    codigoBarras: {
+      type: String,
+      trim: true,
+      unique: true,
+      sparse: true,
+      set: (value) => {
+        if (value == null) return undefined;
+        const texto = String(value).trim();
+        return texto === "" ? undefined : texto;
+      },
+    },
     nombre: { type: String, required: true, trim: true },
     descripcion: { type: String, default: "" },
     marca: { type: String, default: "" },

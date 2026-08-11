@@ -3,6 +3,7 @@ import Venta from "../models/ventaModel.js";
 import DetalleVenta from "../models/detalleVentaModel.js";
 import Product from "../models/productModel.js";
 import Client from "../models/clientModel.js";
+import * as movimientoCuentaService from "./movimientoCuentaService.js";
 
 const METODOS_PAGO_VALIDOS = new Set([
   "EFECTIVO",
@@ -10,6 +11,7 @@ const METODOS_PAGO_VALIDOS = new Set([
   "CREDITO",
   "TRANSFERENCIA",
   "CAJA_VECINA",
+  "FIADO",
 ]);
 
 function normalizarTexto(valor) {
@@ -166,16 +168,23 @@ export async function listar(filtros = {}) {
           ? Number(filtros.search)
           : undefined,
       },
+      { metodoPago: regex },
+      { observaciones: regex },
     ].filter(Boolean);
-    if (!query.$or.length) {
-      query.$or = [];
+
+    const clientesPorNombre = await Client.find({ nombre: regex }).select(
+      "_id",
+    );
+    if (clientesPorNombre.length > 0) {
+      query.$or.push({
+        cliente: { $in: clientesPorNombre.map((cliente) => cliente._id) },
+      });
     }
-    query.$or.push({ metodoPago: regex });
-    query.$or.push({ observaciones: regex });
   }
 
   if (filtros.estado) query.estado = filtros.estado;
   if (filtros.cliente) query.cliente = filtros.cliente;
+  if (filtros.metodoPago) query.metodoPago = filtros.metodoPago;
 
   const page = Math.max(1, parseInt(filtros.page) || 1);
   const limit = Math.max(1, Math.min(100, parseInt(filtros.limit) || 10));
@@ -365,6 +374,41 @@ export async function confirmar(id) {
     throw crearErrorValidacion("No se puede confirmar una venta anulada.");
   }
 
+  if (venta.metodoPago === "FIADO" && !venta.cliente) {
+    throw crearErrorValidacion(
+      "Una venta fiada requiere seleccionar un cliente registrado.",
+    );
+  }
+
+  let cliente = null;
+  if (venta.cliente) {
+    cliente = await Client.findById(venta.cliente);
+    if (!cliente) {
+      throw crearErrorValidacion("El cliente seleccionado no existe.");
+    }
+    if (!cliente.activo) {
+      throw crearErrorValidacion("El cliente seleccionado está inactivo.");
+    }
+  }
+
+  if (venta.metodoPago === "FIADO" && cliente) {
+    const limiteFiado = Number(cliente.limiteFiado || 0);
+    if (limiteFiado <= 0) {
+      throw crearErrorValidacion(
+        "El cliente no tiene límite de fiado configurado. Configúralo al editar el cliente.",
+      );
+    }
+
+    const saldoPendiente =
+      await movimientoCuentaService.obtenerSaldoCliente(venta.cliente);
+    const deudaProyectada = saldoPendiente + venta.total;
+    if (deudaProyectada > limiteFiado) {
+      throw crearErrorValidacion(
+        `La venta supera el crédito disponible del cliente (deuda actual: $${saldoPendiente.toLocaleString("es-CL")}, límite: $${limiteFiado.toLocaleString("es-CL")}).`,
+      );
+    }
+  }
+
   const detalles = await DetalleVenta.find({ venta: id });
   if (!detalles.length) {
     throw crearErrorValidacion("La venta debe tener al menos un producto.");
@@ -400,6 +444,18 @@ export async function confirmar(id) {
     }
 
     venta.estado = "CONFIRMADA";
+
+    if (venta.metodoPago === "FIADO") {
+      await movimientoCuentaService.registrarVentaFiada({
+        clienteId: venta.cliente,
+        ventaId: venta._id,
+        monto: venta.total,
+        usuarioId: venta.usuario,
+        observacion: `Venta fiada #${venta.numeroVenta}`,
+        session,
+      });
+    }
+
     await venta.save({ session });
 
     await session.commitTransaction();
@@ -437,6 +493,17 @@ export async function anular(id) {
         producto.stockActual =
           Number(producto.stockActual) + Number(detalle.cantidad);
         await producto.save({ session });
+      }
+
+      if (venta.metodoPago === "FIADO") {
+        await movimientoCuentaService.anularPorVenta({
+          ventaId: venta._id,
+          clienteId: venta.cliente,
+          montoVenta: venta.total,
+          numeroVenta: venta.numeroVenta,
+          usuarioId: venta.usuario,
+          session,
+        });
       }
     }
 

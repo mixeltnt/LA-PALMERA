@@ -37,27 +37,28 @@ const ventaSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      enum: ["EFECTIVO", "DEBITO", "CREDITO", "TRANSFERENCIA", "CAJA_VECINA"],
+      enum: [
+        "EFECTIVO",
+        "DEBITO",
+        "CREDITO",
+        "TRANSFERENCIA",
+        "CAJA_VECINA",
+        "FIADO",
+      ],
     },
     observaciones: { type: String, default: "", trim: true },
   },
   { timestamps: true },
 );
 
-ventaSchema.pre("validate", async function (next) {
-  try {
-    if (this.isNew && (this.numeroVenta == null || this.numeroVenta === 0)) {
-      const secuencia = await Secuencia.findOneAndUpdate(
-        { nombre: "venta" },
-        { $inc: { valorActual: 1 } },
-        { new: true, upsert: true, setDefaultsOnInsert: true },
-      );
-      this.numeroVenta = secuencia.valorActual;
-    }
-
-    next();
-  } catch (error) {
-    next(error);
+ventaSchema.pre("validate", async function () {
+  if (this.isNew && (this.numeroVenta == null || this.numeroVenta === 0)) {
+    const secuencia = await Secuencia.findOneAndUpdate(
+      { nombre: "venta" },
+      { $inc: { valorActual: 1 } },
+      { new: true, upsert: true, setDefaultsOnInsert: true },
+    );
+    this.numeroVenta = secuencia.valorActual;
   }
 });
 

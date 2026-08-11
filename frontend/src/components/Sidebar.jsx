@@ -6,6 +6,7 @@ const links = [
   { to: "/productos", label: "Productos", icon: "bi-box-seam-fill" },
   { to: "/categorias", label: "Categorías", icon: "bi-tags-fill" },
   { to: "/ventas", label: "Ventas", icon: "bi-cart-fill" },
+  { to: "/ventas/historial", label: "Historial Ventas", icon: "bi-clock-history" },
   { to: "/compras", label: "Compras", icon: "bi-truck" },
   { to: "/clientes", label: "Clientes", icon: "bi-people-fill" },
   { to: "/proveedores", label: "Proveedores", icon: "bi-person-badge" },

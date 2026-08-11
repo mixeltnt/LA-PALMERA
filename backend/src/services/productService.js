@@ -74,6 +74,11 @@ function validarCodigoBarras(valor) {
   return texto;
 }
 
+function normalizarCodigoBarras(valor) {
+  const texto = validarCodigoBarras(valor);
+  return texto || undefined;
+}
+
 function crearErrorValidacion(mensaje) {
   const error = new Error(mensaje);
   error.errores = [mensaje];
@@ -212,19 +217,14 @@ export async function crear(data) {
     throw err;
   }
 
-  let codigoBarras = null;
-  if (data.codigoBarras != null && data.codigoBarras !== "") {
-    codigoBarras = validarCodigoBarras(data.codigoBarras);
-    if (codigoBarras) {
-      const existeCodigoBarras = await Product.findOne({ codigoBarras });
-      if (existeCodigoBarras) {
-        const err = new Error(
-          "Ya existe un producto con ese código de barras.",
-        );
-        err.errores = ["Ya existe un producto con ese código de barras."];
-        err.status = 400;
-        throw err;
-      }
+  const codigoBarras = normalizarCodigoBarras(data.codigoBarras);
+  if (codigoBarras) {
+    const existeCodigoBarras = await Product.findOne({ codigoBarras });
+    if (existeCodigoBarras) {
+      const err = new Error("Ya existe un producto con ese código de barras.");
+      err.errores = ["Ya existe un producto con ese código de barras."];
+      err.status = 400;
+      throw err;
     }
   }
 
@@ -281,9 +281,10 @@ export async function actualizar(id, data) {
   }
 
   let codigoBarras = producto.codigoBarras;
-  if (data.codigoBarras != null && data.codigoBarras !== "") {
-    codigoBarras = validarCodigoBarras(data.codigoBarras);
-    if (codigoBarras && codigoBarras !== producto.codigoBarras) {
+  const codigoBarrasIngresado = normalizarCodigoBarras(data.codigoBarras);
+  if (codigoBarrasIngresado) {
+    codigoBarras = codigoBarrasIngresado;
+    if (codigoBarras !== producto.codigoBarras) {
       const existeCodigoBarras = await Product.findOne({
         codigoBarras,
         _id: { $ne: id },
@@ -298,7 +299,7 @@ export async function actualizar(id, data) {
       }
     }
   } else {
-    codigoBarras = null;
+    codigoBarras = undefined;
   }
 
   const categoria = await resolverCategoria(data.categoria);

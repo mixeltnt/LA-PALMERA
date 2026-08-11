@@ -29,7 +29,7 @@ router.get("/", getVentas);
 router.get("/:id", getVentaById);
 router.post("/", createVenta);
 router.put("/:id", updateVenta);
-router.patch("/:id/confirmar", requerirRolPermitido(["admin"]), confirmarVenta);
+router.patch("/:id/confirmar", confirmarVenta);
 router.patch("/:id/anular", requerirRolPermitido(["admin"]), anularVenta);
 
 export default router;
