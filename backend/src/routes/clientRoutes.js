@@ -6,6 +6,7 @@ import {
   updateClient,
   deleteClient,
   getClientStats,
+  getCuentasPorCobrar,
   getClientMovimientos,
   getClienteSaldo,
   registrarAbono,
@@ -17,6 +18,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get("/stats", getClientStats);
+router.get("/cuentas-por-cobrar", getCuentasPorCobrar);
 router.get("/:id/movimientos", getClientMovimientos);
 router.get("/:id/saldo", getClienteSaldo);
 router.post("/:id/abonos", registrarAbono);

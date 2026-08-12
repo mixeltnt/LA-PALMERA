@@ -68,16 +68,22 @@ export async function getClientStats(req, res) {
   }
 }
 
+export async function getCuentasPorCobrar(req, res) {
+  try {
+    const data = await movimientoCuentaService.listarCuentasPorCobrar();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ mensaje: "Error al obtener cuentas por cobrar." });
+  }
+}
+
 export async function getClientMovimientos(req, res) {
   try {
     const data = await movimientoCuentaService.listarPorCliente(req.params.id);
     res.json(data);
   } catch (error) {
     const status =
-      error.message === "Cliente no encontrado." ||
-      error.message === "El cliente seleccionado no es válido."
-        ? 404
-        : error.status || 500;
+      error.message === "Cliente no encontrado." ? 404 : error.status || 500;
     res.status(status).json({ mensaje: error.message });
   }
 }

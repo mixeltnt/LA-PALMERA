@@ -6,6 +6,7 @@ export const clientService = {
   obtenerMovimientos: (id) => api.get(`/clientes/${id}/movimientos`),
   obtenerSaldo: (id) => api.get(`/clientes/${id}/saldo`),
   registrarAbono: (id, data) => api.post(`/clientes/${id}/abonos`, data),
+  cuentasPorCobrar: () => api.get("/clientes/cuentas-por-cobrar"),
   crear: (data) => api.post("/clientes", data),
   actualizar: (id, data) => api.put(`/clientes/${id}`, data),
   eliminar: (id) => api.delete(`/clientes/${id}`),

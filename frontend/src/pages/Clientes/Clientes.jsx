@@ -48,6 +48,13 @@ function Clientes() {
   const [abonoForm, setAbonoForm] = useState({ monto: "", observacion: "" });
   const [savingAbono, setSavingAbono] = useState(false);
 
+  const [cuentas, setCuentas] = useState([]);
+  const [resumenCuentas, setResumenCuentas] = useState({
+    totalDeudores: 0,
+    totalPorCobrar: 0,
+  });
+  const [loadingCuentas, setLoadingCuentas] = useState(false);
+
   const [toast, setToast] = useState(null);
 
   const buildParams = useCallback(() => {
@@ -72,9 +79,29 @@ function Clientes() {
     }
   }, [buildParams]);
 
+  const cargarCuentas = useCallback(async () => {
+    setLoadingCuentas(true);
+    try {
+      const data = await clientService.cuentasPorCobrar();
+      setCuentas(data.cuentas || []);
+      setResumenCuentas(
+        data.resumen || { totalDeudores: 0, totalPorCobrar: 0 },
+      );
+    } catch {
+      setCuentas([]);
+      setResumenCuentas({ totalDeudores: 0, totalPorCobrar: 0 });
+    } finally {
+      setLoadingCuentas(false);
+    }
+  }, []);
+
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  useEffect(() => {
+    cargarCuentas();
+  }, [cargarCuentas]);
 
   useEffect(() => {
     setPage(1);
@@ -177,8 +204,16 @@ function Clientes() {
       setDeleteId(null);
       setToast({ type: "success", text: "Cliente eliminado correctamente." });
       cargar();
-    } catch {
-      // silent
+      cargarCuentas();
+    } catch (err) {
+      setShowDeleteConfirm(false);
+      setDeleteId(null);
+      setToast({
+        type: "danger",
+        text:
+          err.message ||
+          "No se pudo eliminar el cliente. Verifica que no tenga movimientos asociados.",
+      });
     }
   };
 
@@ -234,6 +269,7 @@ function Clientes() {
         text: "Abono registrado correctamente.",
       });
       await abrirCuenta(cuentaCliente);
+      cargarCuentas();
     } catch (err) {
       setError(err.message || "Error al registrar el abono.");
     } finally {
@@ -269,6 +305,78 @@ function Clientes() {
         <button className="btn btn-success" onClick={openCreate}>
           <i className="bi bi-plus-lg me-1"></i>Nuevo Cliente
         </button>
+      </div>
+
+      <div className="card border-0 shadow-sm mb-4">
+        <div className="card-body">
+          <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+              <h5 className="fw-bold mb-1">Cuentas por cobrar</h5>
+              <p className="text-muted small mb-0">
+                Clientes con deuda pendiente de ventas fiadas.
+              </p>
+            </div>
+            <div className="text-end">
+              <div className="small text-muted">Total por cobrar</div>
+              <div className="fw-bold fs-5 text-danger">
+                {formatMoney(resumenCuentas.totalPorCobrar)}
+              </div>
+              <div className="small text-muted">
+                Clientes con deuda: {resumenCuentas.totalDeudores}
+              </div>
+            </div>
+          </div>
+
+          {loadingCuentas ? (
+            <div className="text-center py-4">
+              <div className="spinner-border text-success" role="status">
+                <span className="visually-hidden">Cargando...</span>
+              </div>
+            </div>
+          ) : cuentas.length > 0 ? (
+            <div className="table-responsive">
+              <table className="table table-sm table-hover align-middle mb-0 small">
+                <thead className="table-light">
+                  <tr>
+                    <th>Cliente</th>
+                    <th>RUT</th>
+                    <th className="text-end">Límite</th>
+                    <th className="text-end">Deuda pendiente</th>
+                    <th className="text-end">Disponible</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cuentas.map((cuenta) => (
+                    <tr key={String(cuenta.cliente) || cuenta.nombre}>
+                      <td className="fw-semibold">
+                        {cuenta.nombre}
+                        {cuenta.activo === false && (
+                          <span className="badge bg-secondary ms-2">
+                            Inactivo
+                          </span>
+                        )}
+                      </td>
+                      <td className="text-nowrap">{cuenta.rut || "—"}</td>
+                      <td className="text-end text-nowrap">
+                        {formatMoney(cuenta.limiteFiado)}
+                      </td>
+                      <td className="text-end text-nowrap fw-semibold text-danger">
+                        {formatMoney(cuenta.saldoPendiente)}
+                      </td>
+                      <td className="text-end text-nowrap">
+                        {formatMoney(cuenta.disponible)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center text-muted py-3">
+              Actualmente no hay cuentas pendientes.
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="card border-0 shadow-sm mb-4">

@@ -54,7 +54,7 @@ function Dashboard() {
       const mes = toISODate(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
       const hoyIso = toISODate(hoy);
 
-      const [pStats, cStats, catStats, ventasHoy, ventasMes, ingresos, compras, ultimas] =
+      const [pStats, cStats, catStats, ventasHoy, ventasMes, ingresos, compras, ultimas, cuentasPorCobrar] =
         await Promise.all([
           productService.stats(),
           clientService.stats(),
@@ -64,6 +64,7 @@ function Dashboard() {
           ventaService.estadisticas(),
           compraService.resumen(),
           ventaService.listar({ limit: 5, page: 1 }),
+          clientService.cuentasPorCobrar(),
         ]);
 
       setStats({
@@ -75,6 +76,9 @@ function Dashboard() {
         ventasMes: ventasMes.resumen,
         ingresos: ingresos.resumen,
         compras: compras.cantidad || 0,
+        cuentasPorCobrar:
+          cuentasPorCobrar.resumen?.totalPorCobrar || 0,
+        deudores: cuentasPorCobrar.resumen?.totalDeudores || 0,
       });
       setUltimasVentas(ultimas.ventas || []);
       setError("");
@@ -96,6 +100,7 @@ function Dashboard() {
     { icon: "bi-calendar-month", label: "Ventas del Mes", value: stats ? formatMoney(stats.ventasMes.totalVendido) : "...", color: "primary" },
     { icon: "bi-currency-dollar", label: "Ingresos", value: stats ? formatMoney(stats.ingresos.totalVendido) : "...", color: "success" },
     { icon: "bi-truck", label: "Compras", value: stats ? String(stats.compras) : "...", color: "warning" },
+    { icon: "bi-cash-coin", label: `Por cobrar (${stats ? String(stats.deudores) : "..."})`, value: stats ? formatMoney(stats.cuentasPorCobrar) : "...", color: "danger" },
     { icon: "bi-box-seam-fill", label: "Productos", value: stats ? String(stats.productos) : "...", color: "primary" },
     { icon: "bi-exclamation-triangle-fill", label: "Stock Bajo", value: stats ? String(stats.stockBajo) : "...", color: "danger" },
     { icon: "bi-tags-fill", label: "Categorías", value: stats ? String(stats.categorias) : "...", color: "secondary" },

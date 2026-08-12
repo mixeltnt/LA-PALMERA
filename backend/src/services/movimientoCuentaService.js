@@ -255,3 +255,41 @@ export async function obtenerSaldoCliente(clienteId) {
 
   return calcularSaldoDesdeMovimientos(movimientos);
 }
+
+export async function listarCuentasPorCobrar() {
+  const clientes = await Client.find()
+    .select("_id nombre rut activo limiteFiado")
+    .lean();
+
+  const cuentas = [];
+
+  for (const cliente of clientes) {
+    const saldoPendiente = await obtenerSaldoCliente(cliente._id);
+
+    if (saldoPendiente <= 0) continue;
+
+    const limiteFiado = Number(cliente.limiteFiado || 0);
+    const disponible =
+      limiteFiado > 0 ? Math.max(0, limiteFiado - saldoPendiente) : 0;
+
+    cuentas.push({
+      cliente: cliente._id,
+      nombre: cliente.nombre,
+      rut: cliente.rut || "",
+      activo: cliente.activo,
+      limiteFiado,
+      saldoPendiente,
+      disponible,
+    });
+  }
+
+  cuentas.sort((a, b) => b.saldoPendiente - a.saldoPendiente);
+
+  return {
+    cuentas,
+    resumen: {
+      totalDeudores: cuentas.length,
+      totalPorCobrar: cuentas.reduce((suma, cuenta) => suma + cuenta.saldoPendiente, 0),
+    },
+  };
+}
