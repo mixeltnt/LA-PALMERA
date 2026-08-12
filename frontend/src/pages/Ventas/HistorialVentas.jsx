@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import ventaService from "../../services/ventaService";
 import { useAuth } from "../../contexts/AuthContext";
+import TicketVenta from "../../components/Ventas/TicketVenta";
 
 const METODO_PAGO_LABELS = {
   EFECTIVO: "Efectivo",
@@ -34,6 +35,7 @@ function HistorialVentas() {
 
   const [anularVenta, setAnularVenta] = useState(null);
   const [anulando, setAnulando] = useState(false);
+  const [ticketToPrint, setTicketToPrint] = useState(null);
 
   const [error, setError] = useState("");
   const [toast, setToast] = useState(null);
@@ -470,6 +472,16 @@ function HistorialVentas() {
                 )}
               </div>
               <div className="modal-footer">
+                {detalle.venta.estado === "CONFIRMADA" && (
+                  <button
+                    type="button"
+                    className="btn btn-success me-auto"
+                    onClick={() => setTicketToPrint(detalle)}
+                    title="Imprimir ticket de esta venta"
+                  >
+                    <i className="bi bi-printer me-1"></i>Imprimir ticket
+                  </button>
+                )}
                 <button
                   className="btn btn-secondary"
                   onClick={() => setDetalle(null)}
@@ -580,6 +592,14 @@ function HistorialVentas() {
             ></button>
           </div>
         </div>
+      )}
+
+      {ticketToPrint && (
+        <TicketVenta
+          venta={ticketToPrint.venta}
+          detalles={ticketToPrint.detalles}
+          onAfterPrint={() => setTicketToPrint(null)}
+        />
       )}
     </div>
   );

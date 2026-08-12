@@ -519,3 +519,188 @@ export async function anular(id) {
     throw error;
   }
 }
+
+function parseFechaLocal(fechaTexto) {
+  if (!fechaTexto) return null;
+  const [anio, mes, dia] = String(fechaTexto).split("-").map(Number);
+  if (!anio || !mes || !dia) return null;
+  return new Date(anio, mes - 1, dia);
+}
+
+function diaSiguiente(fecha) {
+  return new Date(
+    fecha.getFullYear(),
+    fecha.getMonth(),
+    fecha.getDate() + 1,
+  );
+}
+
+function rangoFechas(filtros) {
+  const match = {};
+  const desde = parseFechaLocal(filtros.desde);
+  const hasta = parseFechaLocal(filtros.hasta);
+
+  if (desde) match.$gte = desde;
+  if (hasta) match.$lt = diaSiguiente(hasta);
+
+  return Object.keys(match).length > 0 ? match : null;
+}
+
+export async function obtenerEstadisticas(filtros = {}) {
+  const matchFechas = rangoFechas(filtros);
+  const match = {};
+  if (matchFechas) match.fecha = matchFechas;
+  if (filtros.metodoPago) match.metodoPago = filtros.metodoPago;
+
+  const [resultado] = await Venta.aggregate([
+    { $match: match },
+    {
+      $facet: {
+        confirmadas: [
+          { $match: { estado: "CONFIRMADA" } },
+          {
+            $group: {
+              _id: "$metodoPago",
+              cantidad: { $sum: 1 },
+              monto: { $sum: "$total" },
+            },
+          },
+        ],
+        anuladas: [
+          { $match: { estado: "ANULADA" } },
+          {
+            $group: {
+              _id: null,
+              cantidad: { $sum: 1 },
+              monto: { $sum: "$total" },
+            },
+          },
+        ],
+      },
+    },
+  ]);
+
+  const porMetodoPago = (resultado?.confirmadas || []).map((grupo) => ({
+    metodoPago: grupo._id,
+    cantidad: grupo.cantidad,
+    monto: grupo.monto,
+  }));
+
+  const totalVendido = porMetodoPago.reduce((suma, grupo) => suma + grupo.monto, 0);
+  const cantidadConfirmadas = porMetodoPago.reduce(
+    (suma, grupo) => suma + grupo.cantidad,
+    0,
+  );
+  const anuladas = resultado?.anuladas?.[0] || { cantidad: 0, monto: 0 };
+
+  return {
+    resumen: {
+      totalVendido,
+      cantidadVentasConfirmadas: cantidadConfirmadas,
+      ticketPromedio:
+        cantidadConfirmadas > 0 ? Math.round(totalVendido / cantidadConfirmadas) : 0,
+      ventasAnuladas: anuladas.cantidad || 0,
+      montoAnulado: anuladas.monto || 0,
+    },
+    porMetodoPago,
+  };
+}
+
+export async function obtenerProductosMasVendidos(filtros = {}) {
+  const limit = Math.min(100, Math.max(1, parseInt(filtros.limit) || 10));
+
+  const match = {
+    "ventaDoc.estado": "CONFIRMADA",
+  };
+  const matchFechas = rangoFechas(filtros);
+  if (matchFechas) match["ventaDoc.fecha"] = matchFechas;
+
+  return await DetalleVenta.aggregate([
+    {
+      $lookup: {
+        from: "ventas",
+        localField: "venta",
+        foreignField: "_id",
+        as: "ventaDoc",
+      },
+    },
+    { $unwind: "$ventaDoc" },
+    { $match: match },
+    {
+      $group: {
+        _id: "$producto",
+        cantidad: { $sum: "$cantidad" },
+        monto: { $sum: "$subtotal" },
+      },
+    },
+    { $sort: { cantidad: -1, monto: -1 } },
+    { $limit: limit },
+    {
+      $lookup: {
+        from: "products",
+        localField: "_id",
+        foreignField: "_id",
+        as: "productoDoc",
+      },
+    },
+    { $unwind: { path: "$productoDoc", preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        _id: 0,
+        producto: {
+          _id: "$_id",
+          nombre: { $ifNull: ["$productoDoc.nombre", "Producto eliminado"] },
+          codigo: { $ifNull: ["$productoDoc.codigo", ""] },
+        },
+        cantidad: 1,
+        monto: 1,
+      },
+    },
+  ]);
+}
+
+export async function obtenerSerieDiaria(filtros = {}) {
+  const dias = Math.min(30, Math.max(1, parseInt(filtros.dias) || 7));
+  const hoy = new Date();
+  const inicio = new Date(
+    hoy.getFullYear(),
+    hoy.getMonth(),
+    hoy.getDate() - (dias - 1),
+  );
+  const fin = diaSiguiente(hoy);
+
+  const ventas = await Venta.find({
+    estado: "CONFIRMADA",
+    fecha: { $gte: inicio, $lt: fin },
+  })
+    .select("fecha total")
+    .lean();
+
+  const porDia = new Map();
+  for (const venta of ventas) {
+    const fecha = venta.fecha instanceof Date ? venta.fecha : new Date(venta.fecha);
+    const clave = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, "0")}-${String(fecha.getDate()).padStart(2, "0")}`;
+    const actual = porDia.get(clave) || { cantidad: 0, monto: 0 };
+    actual.cantidad += 1;
+    actual.monto += Number(venta.total || 0);
+    porDia.set(clave, actual);
+  }
+
+  const serie = [];
+  for (let i = 0; i < dias; i += 1) {
+    const fecha = new Date(
+      hoy.getFullYear(),
+      hoy.getMonth(),
+      hoy.getDate() - (dias - 1 - i),
+    );
+    const clave = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, "0")}-${String(fecha.getDate()).padStart(2, "0")}`;
+    const datos = porDia.get(clave) || { cantidad: 0, monto: 0 };
+    serie.push({
+      fecha: clave,
+      cantidad: datos.cantidad,
+      monto: datos.monto,
+    });
+  }
+
+  return { serie };
+}

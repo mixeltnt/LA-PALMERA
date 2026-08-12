@@ -6,6 +6,8 @@ export const compraService = {
   crear: (data) => api.post("/compras", data),
   actualizar: (id, data) => api.put(`/compras/${id}`, data),
   confirmar: (id) => api.patch(`/compras/${id}/confirmar`),
+  resumen: (params = {}) =>
+    api.get(`/compras/resumen?${new URLSearchParams(params)}`),
 };
 
 export default compraService;

@@ -1,0 +1,102 @@
+.ticket-print-area {
+  display: none;
+}
+
+.ticket-nombre {
+  font-size: 18px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.ticket-subtitulo {
+  font-size: 12px;
+  letter-spacing: 2px;
+}
+
+.ticket-header,
+.ticket-footer {
+  text-align: center;
+}
+
+.ticket-cuerpo {
+  margin-top: 8px;
+}
+
+.ticket-fila {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.ticket-total {
+  font-weight: bold;
+  font-size: 15px;
+  margin: 4px 0;
+}
+
+.ticket-separador {
+  text-align: center;
+  letter-spacing: 2px;
+  color: #333;
+  margin: 4px 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.ticket-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0;
+}
+
+.ticket-tabla th {
+  text-align: left;
+  border-bottom: 1px solid #000;
+}
+
+.ticket-tabla-nombre {
+  width: 40%;
+  text-align: left;
+  word-break: break-word;
+}
+
+.ticket-tabla-cant {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ticket-tabla-monto {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ticket-nota {
+  font-size: 10px;
+  color: #333;
+}
+
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  body > #root {
+    display: none !important;
+  }
+
+  .ticket-print-area {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 80mm;
+    padding: 3mm;
+    background: #fff;
+    color: #000;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+}

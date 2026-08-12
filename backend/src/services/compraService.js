@@ -292,3 +292,36 @@ export async function confirmar(id) {
     throw error;
   }
 }
+
+function parseFechaLocal(fechaTexto) {
+  if (!fechaTexto) return null;
+  const [anio, mes, dia] = String(fechaTexto).split("-").map(Number);
+  if (!anio || !mes || !dia) return null;
+  return new Date(anio, mes - 1, dia);
+}
+
+export async function obtenerResumen(filtros = {}) {
+  const query = { estado: "CONFIRMADA" };
+  const desde = parseFechaLocal(filtros.desde);
+  const hasta = parseFechaLocal(filtros.hasta);
+  const matchFechas = {};
+  if (desde) matchFechas.$gte = desde;
+  if (hasta) {
+    matchFechas.$lt = new Date(
+      hasta.getFullYear(),
+      hasta.getMonth(),
+      hasta.getDate() + 1,
+    );
+  }
+  if (Object.keys(matchFechas).length > 0) query.fechaCompra = matchFechas;
+
+  const [cantidad, filas] = await Promise.all([
+    Compra.countDocuments(query),
+    Compra.aggregate([
+      { $match: query },
+      { $group: { _id: null, monto: { $sum: "$total" } } },
+    ]),
+  ]);
+
+  return { cantidad, monto: filas[0]?.monto || 0 };
+}

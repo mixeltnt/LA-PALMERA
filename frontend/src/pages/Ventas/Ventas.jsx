@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import productService from "../../services/productService";
 import clientService from "../../services/clientService";
 import ventaService from "../../services/ventaService";
+import TicketVenta from "../../components/Ventas/TicketVenta";
 
 const emptyForm = {
   cliente: "",
@@ -39,6 +40,13 @@ function Ventas() {
     telefono: "",
   });
   const [guardandoCliente, setGuardandoCliente] = useState(false);
+  const [ventaConfirmada, setVentaConfirmada] = useState(null);
+  const [ticketToPrint, setTicketToPrint] = useState(null);
+  const scannerRef = useRef(null);
+
+  const focusScanner = useCallback(() => {
+    scannerRef.current?.focus();
+  }, []);
 
   const formatPrice = useCallback((value) => {
     const numeric = Number(value) || 0;
@@ -145,19 +153,6 @@ function Ventas() {
     setError("");
   };
 
-  const syncCartLine = (line, qty) => {
-    const cantidad = Math.min(
-      Math.max(Number.isFinite(qty) ? qty : 1, 1),
-      Number(line.stockActual) || 1,
-    );
-    const subtotalLinea = cantidad * Number(line.precioUnitario || 0);
-    return {
-      ...line,
-      cantidad,
-      subtotal: subtotalLinea,
-    };
-  };
-
   const agregarProducto = (producto) => {
     if (!producto?.activo || Number(producto.stockActual) <= 0) {
       setError("No se puede agregar un producto sin stock disponible.");
@@ -189,11 +184,18 @@ function Ventas() {
         return prev;
       }
 
-      return prev.map((item) =>
-        item._id === producto._id
-          ? syncCartLine(item, Number(item.cantidad) + 1)
-          : item,
-      );
+      return prev.map((item) => {
+        if (item._id !== producto._id) return item;
+        const cantidad = Math.min(
+          Number(item.cantidad) + 1,
+          Number(item.stockActual) || 1,
+        );
+        return {
+          ...item,
+          cantidad,
+          subtotal: cantidad * Number(item.precioUnitario || 0),
+        };
+      });
     });
     if (!blocked) {
       setError("");
@@ -201,17 +203,34 @@ function Ventas() {
   };
 
   const cambiarCantidad = (id, value) => {
+    const solicitada = Number(value);
     setCart((prev) =>
-      prev.map((item) =>
-        item._id === id ? syncCartLine(item, Number(value)) : item,
-      ),
+      prev.map((item) => {
+        if (item._id !== id) return item;
+        const disponible = Number(item.stockActual) || 1;
+        const cantidad = Math.min(
+          Math.max(Number.isFinite(solicitada) ? solicitada : 1, 1),
+          disponible,
+        );
+        if (Number.isFinite(solicitada) && solicitada > disponible) {
+          setError(`Solo hay ${disponible} en stock para ${item.nombre}.`);
+        } else if (error) {
+          setError("");
+        }
+        return {
+          ...item,
+          cantidad,
+          subtotal: cantidad * Number(item.precioUnitario || 0),
+        };
+      }),
     );
-    setError("");
   };
 
   const eliminarProducto = (id) => {
     setCart((prev) => prev.filter((item) => item._id !== id));
   };
+
+  const escapeRegex = (texto) => texto.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   const buscarScanner = async () => {
     const codigo = scanner.trim();
@@ -219,7 +238,7 @@ function Ventas() {
 
     try {
       const data = await productService.listar({
-        search: codigo,
+        search: `^${escapeRegex(codigo)}$`,
         limit: 10,
         activo: "true",
       });
@@ -231,6 +250,7 @@ function Ventas() {
       if (!encontrado) {
         setError(`No se encontró el producto con código "${codigo}".`);
         setScanner("");
+        focusScanner();
         return;
       }
 
@@ -240,6 +260,8 @@ function Ventas() {
     } catch {
       setError("Error al buscar el código de barras.");
       setScanner("");
+    } finally {
+      focusScanner();
     }
   };
 
@@ -250,8 +272,44 @@ function Ventas() {
       return;
     }
 
+    setVentaConfirmada(null);
     setMontoRecibido("");
     setShowCobro(true);
+  };
+
+  const construirTicketConfirmada = (numeroVentaConfirmada) => {
+    const venta = {
+      numeroVenta: numeroVentaConfirmada ?? numeroVenta ?? null,
+      fecha: new Date().toISOString(),
+      subtotal,
+      descuento,
+      total,
+      estado: "CONFIRMADA",
+      metodoPago: form.metodoPago,
+      observaciones: form.observaciones,
+      cliente: clienteSeleccionado
+        ? {
+            nombre: clienteSeleccionado.nombre,
+            rut: clienteSeleccionado.rut,
+          }
+        : null,
+      usuario: user ? { nombre: user.nombre, usuario: user.usuario } : null,
+    };
+    const detalles = cart.map((item) => ({
+      producto: item._id
+        ? { codigo: item.codigo, nombre: item.nombre }
+        : null,
+      cantidad: item.cantidad,
+      precioUnitario: item.precioUnitario,
+      descuento: item.descuento || 0,
+      subtotal: item.subtotal,
+    }));
+    return {
+      venta,
+      detalles,
+      montoRecibido: form.metodoPago === "EFECTIVO" ? recibido : null,
+      saldoCliente: esFiado ? saldoCliente : null,
+    };
   };
 
   const ejecutarConfirmacion = async () => {
@@ -259,20 +317,26 @@ function Ventas() {
     try {
       const payload = construirPayload();
       let idVenta = ventaId;
+      let numeroVentaConfirmada = numeroVenta;
 
       if (idVenta) {
         const actualizada = await ventaService.actualizar(idVenta, payload);
         idVenta = actualizada._id;
+        numeroVentaConfirmada = actualizada.numeroVenta ?? numeroVenta;
       } else {
         const creada = await ventaService.crear(payload);
         idVenta = creada._id;
+        numeroVentaConfirmada = creada.numeroVenta ?? null;
         setNumeroVenta(creada.numeroVenta ?? null);
       }
 
       await ventaService.confirmar(idVenta);
       setShowCobro(false);
       setToast({ type: "success", text: "Venta confirmada correctamente." });
+      const ticketConfirmada = construirTicketConfirmada(numeroVentaConfirmada);
       limpiarFormulario();
+      setVentaConfirmada(ticketConfirmada);
+      focusScanner();
     } catch (err) {
       setError(err.message || "Error al confirmar la venta.");
     } finally {
@@ -291,6 +355,26 @@ function Ventas() {
   const vuelto = recibido - total;
   const cobroEfectivoValido =
     montoRecibido !== "" && recibido >= total;
+
+  const handleMontoRecibidoKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (cobroEfectivoValido && !saving) {
+        void ejecutarConfirmacion();
+      }
+    }
+  };
+
+  const cerrarCobro = () => {
+    if (saving) return;
+    setShowCobro(false);
+    focusScanner();
+  };
+
+  const cerrarNuevoCliente = () => {
+    if (guardandoCliente) return;
+    setShowNuevoCliente(false);
+  };
 
   const handleNuevoClienteChange = (e) => {
     const { name, value } = e.target;
@@ -434,6 +518,7 @@ function Ventas() {
 
   const cancelar = () => {
     limpiarFormulario();
+    setVentaConfirmada(null);
     setToast({ type: "secondary", text: "La venta fue cancelada." });
   };
 
@@ -466,6 +551,36 @@ function Ventas() {
 
       {error && <div className="alert alert-danger">{error}</div>}
       {toast && <div className={`alert alert-${toast.type}`}>{toast.text}</div>}
+
+      {ventaConfirmada && (
+        <div className="alert alert-success d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div>
+            <i className="bi bi-check-circle-fill me-2"></i>
+            Venta{" "}
+            {ventaConfirmada.venta.numeroVenta != null &&
+              `#${ventaConfirmada.venta.numeroVenta} `}
+            confirmada por{" "}
+            <strong>{formatPrice(ventaConfirmada.venta.total)}</strong>.
+          </div>
+          <div className="d-flex gap-2">
+            <button
+              type="button"
+              className="btn btn-success btn-sm"
+              onClick={() => setTicketToPrint(ventaConfirmada)}
+            >
+              <i className="bi bi-printer me-1"></i>Imprimir ticket
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm"
+              title="Descartar ticket"
+              onClick={() => setVentaConfirmada(null)}
+            >
+              <i className="bi bi-x-lg"></i>
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="row g-4 align-items-start">
         <div className="col-lg-7">
@@ -504,6 +619,7 @@ function Ventas() {
                   className="form-control"
                   placeholder="Código de barras (escanea y presiona Enter)..."
                   value={scanner}
+                  ref={scannerRef}
                   onChange={(e) => setScanner(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
@@ -560,7 +676,10 @@ function Ventas() {
                             <td className="text-center">
                               <button
                                 className="btn btn-sm btn-outline-success"
-                                onClick={() => agregarProducto(producto)}
+                                onClick={() => {
+                                  agregarProducto(producto);
+                                  focusScanner();
+                                }}
                                 disabled={Number(producto.stockActual) <= 0}
                               >
                                 <i className="bi bi-plus-lg me-1"></i>Agregar
@@ -772,17 +891,50 @@ function Ventas() {
                               Stock: {item.stockActual}
                             </div>
                           </td>
-                          <td className="text-center" style={{ width: 90 }}>
-                            <input
-                              type="number"
-                              className="form-control form-control-sm text-center"
-                              min="1"
-                              max={item.stockActual}
-                              value={item.cantidad}
-                              onChange={(e) =>
-                                cambiarCantidad(item._id, e.target.value)
-                              }
-                            />
+                          <td className="text-center" style={{ width: 150 }}>
+                            <div className="input-group input-group-sm">
+                              <button
+                                type="button"
+                                className="btn btn-outline-secondary"
+                                title="Disminuir cantidad"
+                                disabled={Number(item.cantidad) <= 1}
+                                onClick={() =>
+                                  cambiarCantidad(
+                                    item._id,
+                                    Number(item.cantidad) - 1,
+                                  )
+                                }
+                              >
+                                <i className="bi bi-dash"></i>
+                              </button>
+                              <input
+                                type="number"
+                                className="form-control text-center"
+                                min="1"
+                                max={item.stockActual}
+                                value={item.cantidad}
+                                onChange={(e) =>
+                                  cambiarCantidad(item._id, e.target.value)
+                                }
+                              />
+                              <button
+                                type="button"
+                                className="btn btn-outline-secondary"
+                                title="Aumentar cantidad"
+                                disabled={
+                                  Number(item.cantidad) >=
+                                  Number(item.stockActual)
+                                }
+                                onClick={() =>
+                                  cambiarCantidad(
+                                    item._id,
+                                    Number(item.cantidad) + 1,
+                                  )
+                                }
+                              >
+                                <i className="bi bi-plus"></i>
+                              </button>
+                            </div>
                           </td>
                           <td className="text-end text-nowrap">
                             {formatPrice(item.precioUnitario)}
@@ -861,6 +1013,12 @@ function Ventas() {
           className="modal d-block"
           tabIndex={-1}
           style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              cerrarCobro();
+            }
+          }}
         >
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content">
@@ -871,7 +1029,7 @@ function Ventas() {
                 <button
                   type="button"
                   className="btn-close"
-                  onClick={() => setShowCobro(false)}
+                  onClick={cerrarCobro}
                   disabled={saving}
                 ></button>
               </div>
@@ -934,6 +1092,7 @@ function Ventas() {
                       placeholder="0"
                       value={montoRecibido}
                       onChange={(e) => setMontoRecibido(e.target.value)}
+                      onKeyDown={handleMontoRecibidoKeyDown}
                       autoFocus
                     />
                     <div className="d-flex flex-wrap gap-2 mb-3">
@@ -990,7 +1149,7 @@ function Ventas() {
                 <button
                   type="button"
                   className="btn btn-outline-secondary"
-                  onClick={() => setShowCobro(false)}
+                  onClick={cerrarCobro}
                   disabled={saving}
                 >
                   Cancelar
@@ -1027,6 +1186,12 @@ function Ventas() {
           className="modal d-block"
           tabIndex={-1}
           style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              cerrarNuevoCliente();
+            }
+          }}
         >
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content">
@@ -1037,7 +1202,7 @@ function Ventas() {
                 <button
                   type="button"
                   className="btn-close"
-                  onClick={() => setShowNuevoCliente(false)}
+                  onClick={cerrarNuevoCliente}
                   disabled={guardandoCliente}
                 ></button>
               </div>
@@ -1087,7 +1252,7 @@ function Ventas() {
                   <button
                     type="button"
                     className="btn btn-outline-secondary"
-                    onClick={() => setShowNuevoCliente(false)}
+                    onClick={cerrarNuevoCliente}
                     disabled={guardandoCliente}
                   >
                     Cancelar
@@ -1104,6 +1269,19 @@ function Ventas() {
             </div>
           </div>
         </div>
+      )}
+
+      {ticketToPrint && (
+        <TicketVenta
+          venta={ticketToPrint.venta}
+          detalles={ticketToPrint.detalles}
+          montoRecibido={ticketToPrint.montoRecibido}
+          saldoCliente={ticketToPrint.saldoCliente}
+          onAfterPrint={() => {
+            setTicketToPrint(null);
+            focusScanner();
+          }}
+        />
       )}
     </div>
   );

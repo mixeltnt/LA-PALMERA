@@ -6,6 +6,9 @@ import {
   updateVenta,
   confirmarVenta,
   anularVenta,
+  getEstadisticasVentas,
+  getProductosMasVendidos,
+  getSerieVentas,
 } from "../controllers/ventaController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
@@ -25,6 +28,9 @@ function requerirRolPermitido(rolesPermitidos) {
 
 router.use(authMiddleware);
 
+router.get("/estadisticas", getEstadisticasVentas);
+router.get("/productos-mas-vendidos", getProductosMasVendidos);
+router.get("/serie", getSerieVentas);
 router.get("/", getVentas);
 router.get("/:id", getVentaById);
 router.post("/", createVenta);

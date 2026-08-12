@@ -66,3 +66,15 @@ export async function confirmarCompra(req, res) {
     res.status(status).json({ mensaje: error.message });
   }
 }
+
+export async function getCompraResumen(req, res) {
+  try {
+    const resumen = await compraService.obtenerResumen(req.query);
+    res.json(resumen);
+  } catch (error) {
+    res.status(500).json({
+      mensaje: "Error al obtener el resumen de compras.",
+      error: error.message,
+    });
+  }
+}

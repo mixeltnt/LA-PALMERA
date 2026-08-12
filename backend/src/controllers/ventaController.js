@@ -87,3 +87,41 @@ export async function anularVenta(req, res) {
     res.status(status).json({ mensaje: error.message });
   }
 }
+
+export async function getEstadisticasVentas(req, res) {
+  try {
+    const estadisticas = await ventaService.obtenerEstadisticas(req.query);
+    res.json(estadisticas);
+  } catch (error) {
+    res.status(500).json({
+      mensaje: "Error al obtener estadísticas de ventas.",
+      error: error.message,
+    });
+  }
+}
+
+export async function getProductosMasVendidos(req, res) {
+  try {
+    const productos = await ventaService.obtenerProductosMasVendidos(
+      req.query,
+    );
+    res.json({ productos });
+  } catch (error) {
+    res.status(500).json({
+      mensaje: "Error al obtener productos más vendidos.",
+      error: error.message,
+    });
+  }
+}
+
+export async function getSerieVentas(req, res) {
+  try {
+    const data = await ventaService.obtenerSerieDiaria(req.query);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({
+      mensaje: "Error al obtener la serie de ventas.",
+      error: error.message,
+    });
+  }
+}
