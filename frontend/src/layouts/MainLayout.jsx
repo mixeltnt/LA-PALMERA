@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
 import { Outlet } from "react-router-dom";
@@ -6,27 +6,34 @@ import { Outlet } from "react-router-dom";
 function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const closeSidebar = () => setSidebarOpen(false);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") closeSidebar();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sidebarOpen]);
+
   return (
     <div className="d-flex min-vh-100">
-      <div className={`d-none d-lg-flex`}>
+      <div className="d-none d-lg-block">
         <Sidebar />
       </div>
 
       {sidebarOpen && (
-        <div
-          className="position-fixed top-0 start-0 w-100 h-100 bg-black bg-opacity-50 z-1 d-lg-none"
-          style={{ zIndex: 1040 }}
-          onClick={() => setSidebarOpen(false)}
-        >
-          <div onClick={(e) => e.stopPropagation()} className="h-100">
-            <Sidebar />
+        <div className="sidebar-backdrop d-lg-none" onClick={closeSidebar}>
+          <div className="sidebar-drawer" onClick={(e) => e.stopPropagation()}>
+            <Sidebar onClose={closeSidebar} />
           </div>
         </div>
       )}
 
       <div className="d-flex flex-column flex-grow-1" style={{ minWidth: 0 }}>
-        <Navbar onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
-        <main className="flex-grow-1 p-4 bg-light overflow-auto">
+        <Navbar onToggleSidebar={() => setSidebarOpen((open) => !open)} />
+        <main className="flex-grow-1 p-2 p-md-4 bg-light overflow-auto">
           <Outlet />
         </main>
       </div>

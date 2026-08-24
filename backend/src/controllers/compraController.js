@@ -7,7 +7,7 @@ export async function getCompras(req, res) {
   } catch (error) {
     res
       .status(500)
-      .json({ mensaje: "Error al obtener compras.", error: error.message });
+      .json({ mensaje: "Error interno del servidor." });
   }
 }
 
@@ -17,7 +17,9 @@ export async function getCompraById(req, res) {
     res.json(compra);
   } catch (error) {
     const status = error.message === "Compra no encontrada." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -33,7 +35,7 @@ export async function createCompra(req, res) {
     }
     res
       .status(500)
-      .json({ mensaje: "Error al crear compra.", error: error.message });
+      .json({ mensaje: "Error interno del servidor." });
   }
 }
 
@@ -48,7 +50,9 @@ export async function updateCompra(req, res) {
         .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     const status = error.message === "Compra no encontrada." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -63,7 +67,9 @@ export async function confirmarCompra(req, res) {
         .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     const status = error.message === "Compra no encontrada." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -73,8 +79,7 @@ export async function getCompraResumen(req, res) {
     res.json(resumen);
   } catch (error) {
     res.status(500).json({
-      mensaje: "Error al obtener el resumen de compras.",
-      error: error.message,
+      mensaje: "Error interno del servidor.",
     });
   }
 }

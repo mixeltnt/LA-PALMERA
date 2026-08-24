@@ -1,0 +1,284 @@
+INFORME DE AUDITORIA - VERSION WEB LA PALMERA
+==============================================
+Fecha: 15 de agosto de 2026
+Tipo: Auditoria integral de solo lectura (sin modificaciones de codigo ni de base de datos)
+Alcance: backend (Express 5 + Mongoose 9 + JWT) y frontend (React 19 + Vite 8 + Bootstrap 5 + PWA)
+Estado de la base de datos auditada: mongodb://localhost:27017/lapalmera (solo consultas)
+
+Clasificacion de severidad: [CRITICO] / [ALTO] / [MEDIO] / [BAJO]
+
+
+1. RESUMEN EJECUTIVO
+--------------------
+La version web de La Palmera esta funcionalmente completa en su nucleo operativo:
+login por roles, punto de venta (POS) con ticket 80mm, historial y anulacion de
+ventas, cuentas por cobrar (fiado con limite), compras, productos, clientes,
+proveedores, categorias, usuarios, dashboard y reportes en tiempo real, y PWA
+instalable. El build de produccion compila correctamente (55 modulos) y los
+reportes se alimentan de datos reales de la base (no hay datos ficticios en
+modulos activos).
+
+Sin embargo, NO esta lista para produccion. Se encontro un bug critico en la
+anulacion de ventas fiadas que deja saldos de clientes corruptos (evidencia
+real en la base: clientes con deuda negativa y movimientos REVERSO_ABONO
+espurios), un usuario administrador con contrasena hardcodeada ("1234"),
+secretos debiles en texto plano, y una base poblada casi en su totalidad con
+datos de prueba (51 de 53 productos con codigos TEST-*, clientes de prueba
+incluyendo uno con nombre vulgar "vieja culea"). Ademas no existe ningun test
+automatizado.
+
+Resumen de hallazgos: 2 criticos, 6 altos, 9 medios, 6 bajos (ver seccion 4).
+
+
+2. FUNCIONALIDADES COMPLETADAS (verificadas)
+--------------------------------------------
+- Login JWT con roles admin/encargada/vendedor, redireccion por rol, sesion
+  persistente con opcion "recordar", cierre de sesion y manejo de 401.
+- Punto de venta: busqueda por codigo/nombre, lectura de codigo de barras,
+  cantidades con validacion de stock, cobro EFECTIVO / TRANSFERENCIA / FIADO
+  con botones de montos rapidos, calculo de vuelto, venta inmediata o borrador.
+- Ticket de venta 80mm con CSS dedicado e impresion automatica (window.print).
+- Historial de ventas: filtros por estado/metodo/fecha, detalle, reimpresion
+  de ticket y anulacion de venta con devolucion de stock.
+- Cuentas por cobrar: venta fiada con limite de deuda, abonos y movimientos
+  por cliente.
+- Compras: creacion con validacion de referencias y confirmacion que
+  incrementa stock y actualiza precio de compra (transaccional).
+- Productos: CRUD, categorias, proveedor principal, stock minimo, activo/inactivo.
+- Clientes y Proveedores: CRUD completo con busqueda y paginacion.
+- Categorias: CRUD.
+- Usuarios: CRUD administrado por rol admin (userController nuevo).
+- Dashboard: ventas del dia, monto, ticket promedio, productos top, stock bajo.
+- Reportes: resumen por periodo y serie de ventas.
+- PWA: manifest + iconos + service worker que excluye /api (network-first para
+  navegaciones), instalable.
+- Seguridad basica: bcrypt para contrasenas, JWT, middleware de autenticacion
+  y roles aplicado en backend y frontend (ProtectedRoute).
+- Integridad de datos verificada: secuencia de ventas consistente (valorActual
+  49 = max numeroVenta 49), totales de venta coinciden con la suma de detalles
+  (42/42), sin stock negativos, sin ventas confirmadas con total 0, sin
+  referencias huerfanas de ventas->cliente/usuario.
+
+
+3. FUNCIONALIDADES PARCIALES O INCOMPLETAS
+------------------------------------------
+- Anulacion de ventas fiadas: rota (ver hallazgo C1). Las demas anulaciones
+  (efectivo/transferencia) funcionan.
+- Compras: un borrador guardado NO se puede editar, confirmar ni anular desde
+  la interfaz; la UI solo permite crear+confirmar en un solo paso. Tampoco
+  existe anulacion de compras (el stock incrementado no es reversible).
+- Modulo Caja: pagina placeholder con datos ficticios sin ruta registrada
+  (inaccesible en la app). Ademas es el unico modulo "mock" del sistema.
+- Pagina Configuracion: placeholder estatico sin funcionalidad, visible en el
+  menu lateral.
+- Reportes: la serie de ventas siempre calcula los ultimos 7 dias sin respetar
+  el periodo seleccionado.
+- Validacion de RUT: existe validacion en frontend pero solo se aplica en
+  Proveedores; no se aplica en Clientes ni en el backend.
+- Inventario: el badge "Agotado" en Productos es codigo muerto (siempre gana
+  "Stock Bajo" cuando stock <= minimo).
+- 4 ventas BORRADOR huerfanas nunca confirmadas en la base.
+
+
+4. PROBLEMAS ENCONTRADOS (clasificados por severidad)
+-----------------------------------------------------
+[CRITICO]
+C1. Anulacion de venta fiada deja el saldo del cliente corrupto.
+    Archivo: backend/src/services/movimientoCuentaService.js (anularPorVenta).
+    El exceso se calcula DESPUES de marcar los movimientos VENTA_FIADA como
+    ANULADO, usando el saldo ya alterado, por lo que crea REVERSO_ABONO con
+    montos incorrectos. Con abono parcial, la deuda queda en el monto completo
+    de la venta; sin abonos, crea un REVERSO_ABONO por la venta entera.
+    Evidencia real en la base: 4 movimientos REVERSO_ABONO espurios (montos
+    $1.000, $1.000, $1.500, $1.000) y saldos imposibles: FIA Parcial A2 = -3000,
+    FIA Cliente A = -2000, FIA Parcial A = -2000, Cliente Focal Abono Parcial
+    = -2000 (deuda negativa = cliente "acreedor"), mientras FIA Cliente C y
+    Cliente Vendedor Fiado quedaron debiendo $2.000.
+
+C2. Usuario administrador creado automaticamente con contrasena hardcodeada.
+    Archivo: backend/src/server.js (crearAdminSiNoExiste) - contrasena "1234".
+    Si el servidor queda expuesto, es compromiso total del sistema. El usuario
+    "admin" existe actualmente en la base con esa contrasena.
+
+[ALTO]
+A1. La API permite confirmar compras sin incrementar stock.
+    backend/src/services/compraService.js (actualizar): el estado se copia
+    directamente del body (linea 223), por lo que PUT /api/compras/:id con
+    estado "CONFIRMADA" marca la compra como confirmada sin sumar stock.
+    Solo se bloquea si ya estaba confirmada.
+
+A2. Eliminar categoria cuenta productos por nombre en vez de ObjectId.
+    backend/src/services/categoryService.js (eliminar): compara
+    categoria: categoria.nombre contra el campo ObjectId del producto, por lo
+    que el conteo siempre da 0. La categoria se elimina dejando productos
+    huerfanos que quedan INEDITABLES ("La categoria seleccionada no existe").
+    Latente: hoy no hay huerfanas, pero el bug es seguro de disparar.
+
+A3. Eliminacion fisica de productos sin verificar referencias historicas.
+    backend/src/services/productService.js (eliminar) borra sin consultar
+    detalleventas/detallecompras. Evidencia real: 5 detalleventas huerfanos
+    (productos ya borrados) y 2 detallecompras huerfanos (compras ya borradas)
+    en la base. Los tickets historicos pierden el nombre del producto.
+
+A4. Eliminacion de cliente sin verificar ventas existentes.
+    backend/src/services/clientService.js (eliminar): deja ventas historicas
+    con cliente huerfano (hoy 0 casos, riesgo latente).
+
+A5. Fuga de informacion sensible en consola.
+    backend/src/config/db.js imprime process.env.MONGODB_URI (potencial
+    credenciales embebidas en la URI) al conectar.
+
+A6. Secretos debiles en texto plano.
+    backend/.env (gitignored, NO commiteado - verificacion: backend/.gitignore
+    linea 2): JWT_SECRET predecible ("la_palmera_secret_key_2026") y 3
+    contrasenas de usuarios reales en claro. Riesgo si el archivo se filtra
+    o el secret se deduce.
+
+[MEDIO]
+M1. Sin rate limiting ni bloqueo de intentos en login. JWT de 8 horas sin
+    refresh. Expuesto a fuerza bruta.
+M2. CORS abierto a cualquier origen (app.use(cors())).
+M3. Endpoints sensibles sin restriccion de rol:
+    - PUT /api/ventas/:id y PATCH /:id/confirmar: cualquier autenticado
+      (incluido vendedor) puede editar o confirmar borradores ajenos.
+    - GET /api/ventas/serie: expone el monto por serie del dia a vendedores.
+M4. Token JWT almacenado en localStorage/sessionStorage: robable por XSS.
+M5. Base de datos con datos de prueba mezclados con los reales: 51 de 53
+    productos con codigos TEST-* (y uno TMP-BAR-1-<timestamp>), 4 clientes de
+    prueba ("Cliente Prueba Fiado" x2, "Cliente Expo Test", "[TEST] Cliente
+    Fiado", "vieja culea"), usuario vendedor1 "Vendedor Test". Contaminan
+    reportes y son de bajo nivel profesional ("vieja culea").
+M6. 24 errores de ESLint (npm run lint): 17 react-hooks/set-state-in-effect,
+    3 no-unused-vars, 2 no-empty, 1 react-refresh/only-export-components,
+    1 no-empty adicional en api.js. Ninguno es bug de ejecucion, pero el codigo
+    no pasa lint.
+M7. Codigo muerto/duplicado: backend/src/config/database.js sin uso,
+    frontend/src/constants.js vacio, useAuth.js solo re-exporta.
+M8. Inconsistencia de inventario real: 3 productos con vendido confirmado mayor
+    que comprado+stock: TEST-SNA-044 (vendido 3, stock 0), TEST-UTE-047
+    (vendido 5, stock 0), TEST-UTE-048 (vendido 13, stock 0).
+M9. Los 8 abonos existentes no tienen documento de respaldo/registro de pago;
+    el fiado es el flujo con mas riesgo contable y no tiene tests.
+
+[BAJO]
+B1. Serie de reportes fija a 7 dias (no respeta periodo).
+B2. Badge "Agotado" muerto en Productos.
+B3. Caja.jsx con datos ficticios ($85.000, $20.000, $5.000) - sin ruta.
+B4. Configuracion.jsx placeholder estatico en el menu.
+B5. 4 ventas BORRADOR huerfanas en la base.
+B6. Venta 6a7b9ed8 anulada y reconfirmada 3 veces durante pruebas (deja
+    multiples movimientos VENTA_FIADA de la misma venta).
+
+
+5. RIESGOS
+----------
+- Contable: los saldos de fiado ya estan corruptos por el bug C1; sin una
+  correccion de datos, cualquier cobranza posterior parte de montos erroneos.
+- Seguridad: admin "1234" + JWT_SECRET deducible + sin rate limiting + CORS
+  abierto = acceso total posible si el servidor queda expuesto a red.
+- Contaminacion: reportes/dashboard mezclan datos de prueba con reales.
+- Integridad historica: cada borrado de producto/cliente degrada tickets y
+  reportes historicos.
+- Operativo: imposibilidad de anular compras hace irreversibles errores de
+  compra que ya incrementaron stock.
+
+
+6. DATOS MOCK / HARDCODEADOS
+----------------------------
+- Caja.jsx: montos ficticios ($85.000 / $20.000 / $5.000) - sin ruta, inaccesible.
+- server.js: contrasena admin "1234" hardcodeada.
+- .env: JWT_SECRET y 3 contrasenas en texto plano (gitignored).
+- Base de datos: 51/53 productos TEST-*, 4+ clientes de prueba ("vieja culea").
+- Configuracion.jsx: pagina estatica sin datos (placeholder).
+- El resto de modulos activos (dashboard, reportes, ventas, compras, etc.)
+  usan datos reales de la API: sin datos mock.
+
+
+7. PRUEBAS CUBIERTAS (en esta auditoria, solo lectura)
+------------------------------------------------------
+- Build de produccion: OK (vite build, 55 modulos, JS 403 KB / gzip 103 KB).
+- Lint: ejecutado - 24 errores (detallados en M6).
+- Integridad referencial de la base: secuencia OK (49=49), totales de venta OK
+  (42/42), stock sin negativos, 0 ventas confirmadas con total 0.
+- Huerfanos detectados: 5 detalleventas, 2 detallecompras.
+- Flujo de fiado en datos reales: 8 ventas fiadas confirmadas / 10 anuladas,
+  17 movimientos VENTA_FIADA (9 anulados), 8 ABONO, 4 REVERSO_ABONO espurios.
+- Consistencia de stock: 3 productos con vendido > comprado + stock.
+- Rutas y roles: revision estatica de middleware y rutas.
+- PWA: manifest, iconos y service worker verificados (excluye /api).
+
+
+8. PRUEBAS FALTANTES (no hay tests automatizados en el proyecto)
+----------------------------------------------------------------
+- No existe ningun framework de testing (sin dependencias de test en
+  package.json de backend ni frontend).
+- No se probaron: anulacion de venta fiada con/sin abonos (falla hoy, C1),
+  edicion de compra vía API con estado CONFIRMADA (falla hoy, A1), eliminacion
+  de categoria con productos asociados (falla hoy, A2), limites de fiado con
+  multiples abonos, concurrencia de stock (2 cajas a la vez), permisos por rol
+  en PUT/PATCH de ventas (fallan hoy, M3), expiracion de JWT, PWA offline
+  (solo instalacion probada), anulacion de compras (no existe la funcion).
+
+
+9. PRIORIDAD RECOMENDADA DE CORRECCION
+--------------------------------------
+1. [CRITICO] Corregir anularPorVenta (C1) y sanear los saldos corruptos en BD.
+2. [CRITICO] Eliminar admin "1234" hardcodeado y forzar contrasenas (C2).
+3. [ALTO]  Cerrar agujeros de estado en compras (A1), ObjectId en categorias
+           (A2) y borrados con verificacion de referencias (A3, A4).
+4. [ALTO]  Rotar JWT_SECRET, quitar log de URI (A5) y mover secretos a
+           variables de entorno del servidor (A6).
+5. [MEDIO] Rate limiting en login (M1), roles en endpoints de ventas (M3),
+           limpieza de datos de prueba (M5), resolver 24 errores de lint (M6),
+           anulacion de compras.
+6. [BAJO]  Serie de reportes por periodo (B1), quitar modulos placeholder
+           (B3, B4) o completarlos, borradores huerfanos (B5).
+
+
+10. LISTA FINAL "PARA V1.0" (pendientes antes de producir)
+---------------------------------------------------------
+1. Fix de anulacion de ventas fiadas + script de saneamiento de saldos.
+2. Endurecer contrasenas admin y secretos (env del servidor, rotacion JWT).
+3. Bloquear estado CONFIRMADA en actualizar compra y agregar anulacion de compras.
+4. Restringir roles en PUT/PATCH ventas y GET serie.
+5. Rate limiting / lockout en login.
+6. Validar referencias antes de borrar producto/cliente (o borrado logico).
+7. Limpiar datos de prueba (TEST-*, clientes de prueba, vendedor1, "vieja culea").
+8. Resolver los 24 errores de ESLint y retirar codigo muerto.
+9. Corregir serie de reportes segun periodo; retirar Caja/Configuracion del
+   menu o implementarlas.
+10. Validacion de RUT en backend y en Clientes.
+11. Tests automatizados minimos (al menos los flujos de fiado y stock).
+12. Reconciliar stock de TEST-SNA-044, TEST-UTE-047, TEST-UTE-048.
+
+
+11. ESTIMACION DE COMPLEJIDAD DE CADA PENDIENTE
+-----------------------------------------------
+1. Fix anulacion fiado ......... S (1-2 h) + saneamiento de datos M (4-8 h)
+2. Contrasenas y secretos ...... S (1-2 h)
+3. Estado en compras + anulacion S (2-4 h)
+4. Roles en endpoints ventas ... S (1-2 h)
+5. Rate limiting ............... S (2-3 h)
+6. Borrados con referencias .... S-M (3-6 h)
+7. Limpieza de datos de prueba . M (4-8 h, requiere plan con datos reales)
+8. Errores de lint ............. S-M (3-6 h)
+9. Serie reportes + modulos
+   placeholder ................. S (2-4 h)
+10. Validacion de RUT .......... S (1-2 h)
+11. Tests automatizados ........ L (2-4 dias, no hay infraestructura)
+12. Reconciliacion de stock .... S (1-2 h)
+
+Escala: S = 1-2 dias, M = 2-5 dias, L = mas de una semana.
+
+
+NOTAS FINALES DE LA AUDITORIA
+-----------------------------
+- Esta auditoria fue 100% de solo lectura: no se modifico codigo, no se
+  instalaron dependencias, no se ejecutaron migraciones ni escrituras sobre
+  MongoDB (solo count/find/aggregate), no se levanto ningun servidor
+  persistente y no se hizo commit ni push.
+- git status inicial y final identicos (misma lista de archivos modificados y
+  untracked); el unico archivo nuevo generado por esta sesion es este informe.
+- El build de produccion regenero frontend/dist (ignorado por git).
+- La base actual contiene la evidencia del bug C1: se recomienda preservar
+  estos datos hasta ejecutar el saneamiento (no borrarlos manualmente).

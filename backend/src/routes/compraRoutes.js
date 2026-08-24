@@ -7,17 +7,21 @@ import {
   confirmarCompra,
   getCompraResumen,
 } from "../controllers/compraController.js";
-import { authMiddleware } from "../middleware/authMiddleware.js";
+import { authMiddleware, autorizarRoles } from "../middleware/authMiddleware.js";
 
 const router = Router();
 
 router.use(authMiddleware);
 
-router.get("/resumen", getCompraResumen);
-router.get("/", getCompras);
-router.get("/:id", getCompraById);
-router.post("/", createCompra);
-router.put("/:id", updateCompra);
-router.patch("/:id/confirmar", confirmarCompra);
+router.get("/resumen", autorizarRoles("admin", "encargada"), getCompraResumen);
+router.get("/", autorizarRoles("admin", "encargada"), getCompras);
+router.get("/:id", autorizarRoles("admin", "encargada"), getCompraById);
+router.post("/", autorizarRoles("admin", "encargada"), createCompra);
+router.put("/:id", autorizarRoles("admin", "encargada"), updateCompra);
+router.patch(
+  "/:id/confirmar",
+  autorizarRoles("admin", "encargada"),
+  confirmarCompra,
+);
 
 export default router;

@@ -1,0 +1,176 @@
+INFORME FASE WEB B.2.4 - INTEGRIDAD DE DATOS Y ELIMINACIONES
+============================================================
+Fecha: 15 de agosto de 2026
+Base: informe-fase-web-b1-seguridad.txt (huerfanos en detalleventas y
+detallecompras) y diagnostico previo de la fase.
+Politica: sin contrasenas, JWT_SECRET, tokens ni MONGODB_URI. Sin commit,
+sin push.
+
+1. REFERENCIAS ENCONTRADAS (entidad -> coleccion -> referencias -> operacion)
+-----------------------------------------------------------------------------
+- Product -> products -> DetalleVenta.producto, DetalleCompra.producto,
+  Product.categoria (ObjectId -> Category), Product.proveedorPrincipal
+  (ObjectId -> Provider) -> DELETE /api/productos/:id.
+- Category -> categories -> Product.categoria (ObjectId) -> DELETE
+  /api/categorias/:id.
+- Provider -> providers -> Product.proveedorPrincipal, Compra.proveedor ->
+  DELETE /api/proveedores/:id.
+- Client -> clients -> Venta.cliente, MovimientoCuenta.cliente -> DELETE
+  /api/clientes/:id.
+- Venta -> ventas -> DetalleVenta.venta -> sin endpoint DELETE (solo se
+  recrean detalles al editar BORRADOR via PUT /ventas/:id).
+- Compra -> compras -> DetalleCompra.compra -> sin endpoint DELETE (solo
+  se recrean detalles al editar BORRADOR via PUT /compras/:id).
+- Los deleteMany de DetalleVenta/DetalleCompra en ventaService.js:336 y
+  compraService.js:227 pertenecen al flujo normal de EDICION de borradores
+  y NO fueron modificados.
+
+2. PROBLEMAS DETECTADOS
+-----------------------
+- Producto: eliminacion fisica SIN ninguna validacion de referencias
+  (productService.eliminar usaba findByIdAndDelete directo) -> riesgo de
+  dejar detalleventas/detallecompras huerfanos (casos detectados en B.1:
+  5 detalleventas y 2 detallecompras huerfanos ya existentes en la BD real).
+- Proveedor: solo validaba productos por proveedorPrincipal; NO validaba
+  compras (Compra.proveedor) -> compras huerfanas.
+- Cliente: solo validaba movimientos; NO validaba ventas (Venta.cliente)
+  -> ventas huerfanas.
+- Categoria: la validacion existente consultaba { categoria: categoria.nombre }
+  contra un campo ObjectId -> CastError -> la validacion estaba ROTA (hubiera
+  devuelto 500 en lugar de bloquear).
+- Todos los conflictos de integridad devolvian 400; se estandarizo a 409.
+
+3. ARCHIVOS MODIFICADOS (8, los autorizados para B.2.4)
+-------------------------------------------------------
+- backend/src/services/productService.js
+- backend/src/services/providerService.js
+- backend/src/services/clientService.js
+- backend/src/services/categoryService.js
+- backend/src/controllers/productsController.js
+- backend/src/controllers/providerController.js
+- backend/src/controllers/clientController.js
+- backend/src/controllers/categoryController.js
+
+4. CADA ELIMINACION PROTEGIDA + CODIGO APLICADO + HTTP + MENSAJES
+------------------------------------------------------------------
+- Producto (productService.eliminar): antes de borrar cuenta DetalleVenta
+  y DetalleCompra por producto; si cualquiera > 0 -> HTTP 409,
+  "El producto no puede eliminarse porque tiene movimientos historicos
+  asociados." con detalle de conteos. Si no hay referencias -> se elimina.
+- Proveedor (providerService.eliminar): cuenta productos (proveedorPrincipal)
+  y compras (proveedor); si > 0 -> HTTP 409, "No se puede eliminar el
+  proveedor porque tiene registros historicos asociados." con conteos.
+- Cliente (clientService.eliminar): cuenta movimientos y ventas; si > 0 ->
+  HTTP 409, "No se puede eliminar un cliente con historial. Desactivalo en
+  su lugar." con conteos. Se conservan ventas y movimientos.
+- Categoria (categoryService.eliminar): validacion corregida a
+  { categoria: id } (ObjectId) -> HTTP 409, "No se puede eliminar la
+  categoria porque tiene X producto(s) asociado(s)."
+- Controllers de delete (product/provider/client/category): ahora respetan
+  error.status (409) cuando el servicio lanza error con errores.
+- DetalleVenta/DetalleCompra: no existe endpoint de borrado directo; el
+  unico camino de borrado es la edicion de borradores (PUT), que ya rechaza
+  ventas/compras confirmadas (400 "Solo se puede editar una venta en estado
+  BORRADOR.") -> la trazabilidad historica queda protegida sin cambios.
+
+5. PRUEBAS REALIZADAS (base aislada lapalmera_test, servidor temporal :4100
+   con el codigo B.2.4, usuarios reales clonados para login)
+----------------------------------------------------------------------
+1)  login yasna ..................................... PASS (200)
+2)  producto con detalleventa+detallecompra ......... PASS (409)
+3)  producto sin referencias ........................ PASS (200)
+4)  producto sin referencias eliminado fisicamente .. PASS
+5)  categoria con producto .......................... PASS (409)
+6)  categoria sin productos ......................... PASS (200)
+7)  categoria sin productos eliminada ............... PASS
+8)  proveedor con producto+compra ................... PASS (409)
+9)  proveedor sin referencias ....................... PASS (200)
+10) proveedor sin referencias eliminado ............. PASS
+11) cliente sin historial ........................... PASS (200)
+12) cliente sin historial eliminado ................. PASS
+13) cliente con venta FIADO + movimientos ........... PASS (409)
+14) editar venta confirmada (historial) bloqueado ... PASS (400)
+15) editar compra confirmada (historial) bloqueado .. PASS (400)
+16) venta historica conserva sus detalles (1) ....... PASS
+17) compra historica conserva sus detalles (1) ...... PASS
+18) movimientos del cliente historico intactos (1) .. PASS
+19) venta historica existe .......................... PASS
+20) compra historica existe ......................... PASS
+21) producto con historial NO fue eliminado ......... PASS
+22) sin detalleventas huerfanos (0) ................. PASS
+23) sin detallecompras huerfanos (0) ................ PASS
+24) creacion de producto (regresion) ................ PASS (201)
+25) busqueda de productos (regresion) ............... PASS (200)
+26) creacion de cliente (regresion) ................. PASS (201)
+27) creacion de venta POS (regresion) ............... PASS (201)
+28) confirmacion de venta POS + stock (regresion) ... PASS (200)
+
+RESULTADO: 28/28 PASS.
+(Nota: durante el desarrollo del script hubo un error propio del script de
+prueba - acceso a mongoose.connection.db antes del connect - corregido y
+re-ejecutado; no fue un fallo del codigo del proyecto.)
+
+6. VERIFICACION DE INTEGRIDAD POSTERIOR
+---------------------------------------
+- Tras los 409: producto con historial, categoria con productos, proveedor
+  con compras y cliente con historial siguen existiendo con sus relaciones.
+- Venta historica: 1 detalle intacto. Compra historica: 1 detalle intacto.
+- Movimiento de cuenta del cliente historico: 1 intacto.
+- 0 detalleventas huerfanos y 0 detallecompras huerfanos en la base de prueba.
+- Los 5 detalleventas + 2 detallecompras huerfanos PREEXISTENTES en la BD
+  real no fueron tocados (prohibido escribir en real); quedan como riesgo
+  pendiente a limpiar en una fase autorizada.
+
+7. npm run build: PASS (55 modulos, JS 403.62 kB / gzip 103.68 kB).
+
+8. ESTADO DE MONGODB REAL
+-------------------------
+Sin escrituras. Conteos verificados al cierre: ventas 42, detalleventas 48,
+products 53, clients 14, compras 3, detallecompras 5, movimientocuentas 29,
+categories 16, providers 1, secuencias 1, users 5. Usuarios intactos
+(admin activo=false por B.2.1; yasna/karla/vendedor/vendedor1 sin cambios;
+ninguna contrasena modificada).
+
+9. ESTADO DE LA BASE TEMPORAL
+-----------------------------
+lapalmera_test creada solo para la fase, poblada con datos de prueba y
+ELIMINADA al cierre (0 colecciones restantes). Sin datos permanentes.
+
+10. LOGINS REALES (puerto 4000): Yasna PASS (admin), Karla PASS (encargada),
+    Vendedor PASS (vendedor).
+
+11. git diff
+------------
+Cambios de esta fase (8 archivos): validaciones 409 en productService,
+providerService, clientService, categoryService (con la correccion del
+cast por ObjectId) y respeto de error.status en los 4 controllers de delete.
+El resto de archivos modificados corresponde a fases anteriores.
+
+12. git status: sin archivos nuevos de esta fase salvo este informe. Sin
+    commit, sin push.
+
+13. PROCESOS RESTANTES
+----------------------
+Servidor temporal detenido (PID 4820). Solo quedan los procesos del entorno
+de desarrollo del usuario (12:04 + hijo de nodemon). Sin procesos propios.
+
+14. RIESGOS PENDIENTES
+----------------------
+- Los huerfanos historicos ya existentes en la BD real (5 detalleventas,
+  2 detallecompras) requieren una limpieza puntual autorizada (escritura
+  sobre datos reales), fuera del alcance de esta fase.
+- El frontend muestra mensajes de 400/500 en las pantallas de eliminar;
+  con 409 los mensajes siguen llegando via error.errores (compatible).
+- Soft delete de productos/clientes como alternativa futura (documentado,
+  NO implementado en esta fase por no existir ese concepto hoy).
+
+VERIFICACION FINAL
+------------------
+- Todas las pruebas ejecutadas: PASS (28/28).
+- npm run build: PASS.
+- Logins reales Yasna/Karla/Vendedor: PASS.
+- MongoDB real sin escrituras (conteos idénticos).
+- lapalmera_test eliminada (0 colecciones); temporales eliminados.
+- Servidor temporal detenido; sin procesos propios.
+- git diff/status revisados; sin commit, sin push.
+- Detenido (no se continua con B.2.5).

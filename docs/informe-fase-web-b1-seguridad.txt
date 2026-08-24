@@ -1,0 +1,568 @@
+INFORME FASE WEB B.1 - AUDITORIA DE SEGURIDAD VERSION WEB
+=========================================================
+Fecha: 15 de agosto de 2026
+Modo: SOLO LECTURA. No se modifico codigo, MongoDB, usuarios, .env ni documentos.
+No se ejecuto npm audit fix. No se crearon usuarios. No hay procesos iniciados
+por esta auditoria (los procesos Node en ejecucion son el entorno de desarrollo
+del usuario, iniciados a las 12:04, previos a esta fase; ver seccion VERIFICACION).
+
+Los valores de secretos, contrasenas, tokens y MONGODB_URI NO se revelan en
+este informe. Donde existen, se indica unicamente ubicacion.
+
+Usuarios funcionales vigentes (NO tocados): Yasna (admin), Karla (encargada),
+Vendedor (vendedor). Usuarios de desarrollo historicos: admin, vendedor1.
+
+
+1. RESUMEN EJECUTIVO
+--------------------
+La autenticacion base es solida: bcrypt (cost 10), JWT firmado con expiracion
+de 8 horas, middleware que verifica token Y estado activo del usuario en cada
+peticion, login con mensajes genericos (sin enumeracion de usuarios) y
+respuestas que no exponen hashes de contrasena.
+
+El sistema de roles es consistente entre frontend y backend para la mayoria de
+modulos, con proteccion real en el backend mediante autorizarRoles(). La
+proteccion real SI esta en el backend (no solo en el frontend), lo cual es
+correcto.
+
+Sin embargo existen 2 riesgos criticos y 8 altos que impiden ir a produccion
+sin correccion:
+
+- CRITICO: usuario "admin" con contrasena por defecto conocida, creado
+  automaticamente en cada arranque del servidor si no existe (server.js).
+- CRITICO: JWT_SECRET predecible (valor estatico, deducible), sin rotacion y
+  con tokens de 8 horas sin revocacion (falsificacion total de sesiones).
+- ALTO: PUT /api/ventas/:id y PATCH /:id/confirmar sin restriccion de rol ni
+  de propiedad (cualquier vendedor puede editar/confirmar borradores ajenos).
+- ALTO: sin rate limiting en login (fuerza bruta), CORS abierto, MONGODB_URI
+  impresa en consola, errores internos (error.message) expuestos en respuestas,
+  borrados destructivos sin validacion de referencias, contrasenas reales en
+  texto plano en el .env local, y GET /api/ventas/serie accesible a vendedores.
+
+Resumen por severidad: 2 CRITICOS, 8 ALTOS, 6 MEDIOS, 5 BAJOS.
+
+
+2. RIESGOS CRITICOS (clasificados)
+----------------------------------
+[CRITICO]
+C1. Credencial por defecto administrador.
+    Archivo: backend/src/server.js, lineas 9-20 (funcion crearAdminSiNoExiste,
+    llamada en linea 24 en cada arranque).
+    Problema: si no existe un usuario "admin", el servidor lo crea con
+    contrasena fija "1234" conocida y rol admin.
+    Riesgo: acceso total al sistema (usuarios, anulaciones, cuentas, stock) si
+    el servidor queda expuesto a red; el usuario se RECREA automaticamente si
+    alguien lo elimina; en una base de produccion vacia se creara de nuevo.
+    Solucion: eliminar la auto-creacion; crear el primer admin manualmente con
+    un script y contrasena fuerte (aleatoria por env); verificar que el usuario
+    admin/1234 no exista en produccion.
+
+[CRITICO]
+C2. JWT_SECRET predecible y sin rotacion.
+    Archivo: backend/.env, linea 3 ("Existe un secreto hardcodeado en
+    backend/.env, linea 3" - valor no revelado por politica).
+    Problema: secreto estatico, corto y deducible; tokens firmados HS256 con
+    vigencia de 8 horas sin mecanismo de revocacion (logout no invalida).
+    Riesgo: si el secreto se deduce o filtra, cualquier atacante firma tokens
+    de admin ilimitados; no hay forma de invalidarlos hasta que expiren.
+    Solucion: secreto aleatorio de 64+ bytes solo en variables de entorno de
+    produccion; rotacion periodica; expiracion mas corta o refresh tokens.
+
+[ALTO]
+A1. Edicion y confirmacion de ventas sin rol ni propiedad.
+    Archivos: backend/src/routes/ventaRoutes.js lineas 44-46 (PUT /:id y
+    PATCH /:id/confirmar sin requerirRolPermitido), controllers/ventaController.js
+    (updateVenta, confirmarVenta), services/ventaService.js linea 295 (solo
+    valida estado BORRADOR, sin verificar venta.usuario).
+    Problema: cualquier usuario autenticado (incluido vendedor) puede modificar
+    o confirmar el borrador de cualquier otro usuario. Confirmar descuenta
+    stock y registra la venta.
+    Riesgo: alteracion de ventas ajenas, descuento de stock indebido, fraude
+    interno.
+    Solucion: autorizarRoles + verificacion de propiedad
+    (venta.usuario === req.usuario._id) o restringir confirmacion a
+    admin/encargada.
+
+[ALTO]
+A2. GET /api/ventas/serie sin restriccion de rol.
+    Archivo: backend/src/routes/ventaRoutes.js, linea 41.
+    Problema: expone a cualquier autenticado (vendedor) los montos por serie
+    del dia (informacion de caja diaria).
+    Riesgo: vendedores ven la recaudacion de caja.
+    Solucion: requerirRolPermitido(["admin", "encargada"]).
+
+[ALTO]
+A3. Sin rate limiting ni bloqueo en el login.
+    Archivo: backend/src/routes/authRoutes.js linea 11; controllers/authController.js
+    funcion login (lineas 8-32).
+    Problema: intentos ilimitados contra /api/auth/login.
+    Riesgo: fuerza bruta de contrasenas de cualquier usuario (incl. Yasna,
+    Karla, Vendedor y admin).
+    Solucion: express-rate-limit sobre login + bloqueo temporal tras N fallos.
+
+[ALTO]
+A4. CORS abierto a cualquier origen.
+    Archivo: backend/src/app.js, linea 14 (app.use(cors())).
+    Riesgo: en combinacion con un token filtrado o un cliente malicioso,
+    cualquier sitio puede consumir la API; tambien habilita ataques de origen
+    cruzado contra el backend.
+    Solucion: allowlist de origenes segun entorno (produccion: solo el dominio
+    de la app instalada/PWA).
+
+[ALTO]
+A5. MONGODB_URI impresa en consola y errores completos de conexion.
+    Archivo: backend/src/config/db.js, lineas 5-8 (console.log de
+    process.env.MONGODB_URI) y lineas 14-15 (console.error del error completo,
+    que puede incluir la cadena de conexion).
+    Riesgo: si la URI incluye credenciales de usuario/contraseña, se exponen
+    en logs.
+    Solucion: no loguear la URI ni el error completo; loguear solo estado.
+
+[ALTO]
+A6. Errores internos expuestos en respuestas HTTP.
+    Archivos: authController.js linea 30; userController.js lineas 26, 58, 98,
+    144; ventaController.js lineas 10, 98, 123; entre otros (patron
+    "error: error.message").
+    Problema: los mensajes internos de error (rutas, nombres de archivos,
+    detalles de MongoDB) se devuelven al cliente.
+    Riesgo: ayuda a un atacante a mapear la aplicacion y sus fallos.
+    Solucion: loguear el detalle en el servidor y devolver mensajes genericos.
+
+[ALTO]
+A7. Borrados destructivos sin validacion de referencias.
+    Archivos: productService.eliminar (backend/src/services/productService.js),
+    clientService.eliminar (clientService.js), categoryService.eliminar
+    (categoryService.js - cuenta productos por NOMBRE en vez de ObjectId).
+    Problema: eliminar un producto/cliente/categoria no verifica si existen
+    ventas, compras o movimientos que los referencien.
+    Evidencia en la base: 5 detalleventas y 2 detallecompras huerfanos.
+    Riesgo: tickets historicos y reportes degradados; categorias eliminadas
+    dejan productos ineditables.
+    Solucion: validar referencias antes de borrar o implementar borrado logico.
+
+[ALTO]
+A8. Contrasenas de usuarios funcionales en texto plano en el .env.
+    Archivo: backend/.env, lineas 4-6 ("Existen secretos hardcodeados en
+    backend/.env, lineas 4-6" - valores no revelados).
+    Problema: las contrasenas de Yasna, Karla y Vendedor estan en el archivo de
+    entorno local (gitignored: backend/.gitignore linea 2, verificado, NO esta
+    commiteado).
+    Riesgo: exposicion si el archivo se filtra o si el .env se copia por error;
+    ademas impide rotacion segura de contrasenas.
+    Solucion: secretos solo en el entorno de produccion; rotar contrasenas.
+
+[MEDIO]
+M1. Token JWT en localStorage/sessionStorage (frontend).
+    Archivo: frontend/src/contexts/AuthContext.jsx, lineas 7-12 y 20-27.
+    Riesgo: si hay una XSS, el token se roba con 8 horas de validez.
+    Solucion: mitigar XSS, reducir expiracion, o cookies HttpOnly.
+
+M2. Sin headers de seguridad HTTP.
+    Archivo: backend/src/app.js (no se usa helmet ni CSP).
+    Solucion: helmet + politica CSP acorde a la PWA.
+
+M3. Dependencias con vulnerabilidades reportadas (npm audit, SOLO LECTURA).
+    Backend: 1 HIGH - brace-expansion (via nodemon, dependencia de desarrollo,
+    DoS por expansion, no expuesta en produccion).
+    Frontend: 5 HIGH - react-router-dom 7.18.1 (directa; CSRF en modo RSC,
+    advisory GHSA-qwww-vcr4-c8h2 - el proyecto usa BrowserRouter sin RSC, por
+    lo que NO es explotable en el uso actual, pero debe actualizarse a
+    >= 7.18.2); postcss y nanoid (via vite); brace-expansion.
+    Solucion: npm audit fix en una fase autorizada (solo actualizar
+    dependencias).
+
+M4. Sin politica de complejidad de contrasenas.
+    Archivo: userController.js crearUsuario (lineas 34-42) y actualizarUsuario:
+    solo exigen presencia, sin largo minimo; el propio sistema crea "1234".
+    Solucion: exigir minimo 8 caracteres; prohibir contrasenas por defecto.
+
+M5. Consulta de saldos y listados de clientes abiertos a vendedor.
+    Archivo: clientRoutes.js lineas 35, 37-39 (GET /:id/saldo, GET /, GET /:id,
+    POST /). Es necesario para el POS (verificar limite fiado y crear clientes),
+    pero expone datos de clientes (telefono, direccion, limiteFiado, saldo) a
+    vendedores.
+    Solucion: evaluar si el POS necesita el listado completo; limitar campos.
+
+M6. Logout sin invalidacion server-side.
+    Archivo: AuthContext.jsx logout (lineas 43-50): solo borra localmente.
+    Riesgo: token robado sigue valido hasta 8 horas.
+    Solucion: denylist de tokens o expiracion corta.
+
+[BAJO]
+B1. GET / raiz revela la identidad del API.
+    Archivo: backend/src/app.js, lineas 17-19 ("API La Palmera funcionando").
+    Solucion: mensaje neutral o sin respuesta informativa.
+
+B2. NODE_ENV no se utiliza: CORS, errores y logs no distinguen dev/prod.
+
+B3. Un admin puede desactivarse a si mismo via PUT /api/usuarios/:id.
+    Archivo: userController.js actualizarUsuario linea 86 (el bloqueo
+    "no puedes desactivar tu propio usuario" solo existe en
+    cambiarEstadoUsuario, linea 126).
+    Solucion: replicar el chequeo en actualizarUsuario.
+
+B4. Sin limite de paginacion en busquedas con regex (ReDoS menor posible en
+    listados con $regex sobre nombre; riesgo bajo por volumen de datos).
+
+B5. Express con limite json por defecto (100kb) - adecuado; sin cabecera de
+    servidor personalizada (fingerprinting del stack trivial).
+
+
+3. AUTENTICACION
+----------------
+- Login: POST /api/auth/login (authController.js:8-32). Busca usuario activo,
+  compara con bcrypt, devuelve token JWT y datos del usuario.
+- Hash: bcryptjs 3.0.3, cost 10 (User.js linea 20, pre-save). Correcto.
+- JWT: jsonwebtoken 9.0.3, HS256 (por defecto), payload solo { id },
+  expiracion 8h (authController.js:4-6). Firmado con JWT_SECRET (ver seccion 4).
+- Validacion: authMiddleware.js:16-24 - jwt.verify + carga del usuario en BD +
+  chequeo de activo en CADA peticion. Correcto: un usuario desactivado pierde
+  acceso inmediatamente.
+- Tokens invalidos/vencidos: 401 con mensaje generico (lineas 28-32). Correcto.
+- Usuarios inactivos: rechazados en login (authController.js:12) y en cada
+  request (authMiddleware.js:20-24). Correcto.
+- Que devuelve el login: token + usuario (toJSON elimina password - User.js:29-33).
+  No se expone el hash. Correcto.
+- Secretos/contrasenas en respuestas o logs: no se encontro ningun caso de
+  contrasena, hash o JWT impreso en respuestas ni en console.log (ver seccion 8).
+- Riesgos detectados:
+  * Credencial por defecto admin/1234 (C1).
+  * JWT_SECRET deducible (C2).
+  * Sin rate limiting (A3).
+  * Token en localStorage (M1) y sin revocacion (M6).
+  * Login con "recordar" guarda el token en localStorage (persistente).
+
+
+4. JWT Y SECRETOS
+-----------------
+- Uso de JWT_SECRET: authController.js linea 5 (firma) y authMiddleware.js
+  linea 16 (verificacion).
+- Valor por defecto: NO existe fallback en el codigo; si falta la variable, la
+  firma lanza error (500 en login) y la verificacion lanza 401. No hay fallback
+  inseguro hardcodeado en el codigo.
+- "Existe un secreto hardcodeado en backend/.env, linea 3" (JWT_SECRET).
+  "Existen secretos hardcodeados en backend/.env, lineas 4-6" (contrasenas de
+  usuarios funcionales).
+- .env en .gitignore: SI (backend/.gitignore linea 2). Verificado con
+  git check-ignore: el archivo NO esta en el repositorio ni en git status.
+- No aparece JWT_SECRET ni tokens en logs ni en respuestas.
+- Riesgos: secreto debil/deducible (C2); contrasenas en texto plano en disco
+  (A8); separacion env/codigo: correcta (dotenv, server.js linea 1), pero en
+  produccion debe usarse el entorno real, no el .env local.
+
+
+5. USUARIO ADMIN HISTORICO
+--------------------------
+- Donde se crea: backend/src/server.js, funcion crearAdminSiNoExiste,
+  lineas 9-20.
+- Cuando: en CADA arranque del servidor (linea 24, dentro de start()).
+- Condicion: solo si no existe un usuario con usuario == "admin".
+- Si se recrea: SI - si el usuario "admin" se elimina o se renombra, el
+  siguiente arranque lo vuelve a crear con la contrasena por defecto.
+- Rutas/codigo que lo recrean: solo server.js. seedUsers.js (scripts/) NO crea
+  "admin" (solo yasna, karla y vendedor). Ningun endpoint lo crea.
+- Puede mantenerse accidentalmente en produccion: SI - una base nueva o vacia
+  en produccion recibiria el usuario admin/1234 automaticamente. El usuario
+  "admin" EXISTE actualmente en la base (activo).
+- Forma segura de eliminar la dependencia (sin hacerlo en esta fase):
+  1) Quitar la llamada crearAdminSiNoExiste() de start() y eliminar la funcion.
+  2) Crear el primer admin una sola vez con un script que use contrasena
+     aleatoria o proveniente del entorno (nunca fija).
+  3) Eliminar (o desactivar y rotar contrasena de) el usuario admin existente
+     con contrasena por defecto, conservando Yasna como admin funcional.
+  4) Verificar en produccion que no exista ningun usuario con contrasena por
+     defecto.
+
+
+6. ROLES Y PERMISOS (frontend y backend)
+----------------------------------------
+Frontend: ProtectedRoute.jsx (roles por ruta) + Sidebar.jsx (filtrado de menu)
++ AppRoutes.jsx. Vendedor: solo /ventas. Admin/encargada: dashboard, inventario,
+productos, categorias, historial, compras, clientes, proveedores, reportes.
+Admin: + usuarios y configuracion. La proteccion del backend es independiente y
+se verifica en la tabla siguiente.
+
+TABLA OBLIGATORIA - Modulo/Accion | Admin | Encargada | Vendedor | Proteccion Backend
+------------------------------------------------------------------------------------
+Dashboard                     |  SI  |    SI     |   NO   | SI (GET /ventas/estadisticas y /productos-mas-vendidos admin/encargada)
+Ventas (POS - crear)          |  SI  |    SI     |   SI   | PARCIAL (POST /ventas autenticado; sin rol especifico - intencionado)
+Crear venta                   |  SI  |    SI     |   SI   | PARCIAL (sin rol, requiere token)
+Confirmar venta               |  SI  |    SI     |   SI   | NO - PATCH /ventas/:id/confirmar sin rol ni propiedad (A1)
+Anular venta                  |  SI  |    NO     |   NO   | SI (PATCH /ventas/:id/anular solo admin)
+Historial de ventas           |  SI  |    SI     |   NO   | SI (GET /ventas y /ventas/:id admin/encargada)
+Reportes                      |  SI  |    SI     |   NO   | SI (estadisticas admin/encargada)
+Productos (ver)               |  SI  |    SI     |   SI   | SI (GET autenticado)
+Crear producto                |  SI  |    SI     |   NO   | SI (POST admin/encargada)
+Editar producto               |  SI  |    SI     |   NO   | SI (PUT admin/encargada)
+Eliminar producto             |  SI  |    SI     |   NO   | SI (DELETE admin/encargada) - sin validacion de referencias (A7)
+Categorias (ver)              |  SI  |    SI     |   SI   | SI (GET autenticado)
+Categorias (escribir)         |  SI  |    SI     |   NO   | SI (admin/encargada) - eliminacion sin chequeo de productos (A7)
+Proveedores (ver)             |  SI  |    SI     |   SI   | SI (GET autenticado)
+Proveedores (escribir)        |  SI  |    SI     |   NO   | SI (admin/encargada)
+Compras (todo)                |  SI  |    SI     |   NO   | SI (admin/encargada) - PUT puede fijar CONFIRMADA sin stock (A7/integridad)
+Clientes (ver/crear)          |  SI  |    SI     |   SI   | PARCIAL (GET/POST autenticado - necesario para POS; M5)
+Clientes (editar/eliminar)    |  SI  |    SI     |   NO   | SI (PUT/DELETE admin/encargada) - eliminacion sin referencias (A7)
+Abonos                        |  SI  |    SI     |   NO   | SI (POST /clientes/:id/abonos admin/encargada)
+Usuarios                      |  SI  |    NO     |   NO   | SI (todo userRoutes con router.use(authMiddleware, admin))
+Configuracion                 |  SI  |    NO     |   NO   | Solo frontend (pagina placeholder; sin backend)
+Inventario                    |  SI  |    SI     |   NO   | SI (GET productos autenticado; stats admin/encargada)
+
+Conclusion: el backend protege la mayoria de operaciones. Excepciones reales:
+confirmar/editar ventas (A1), serie de ventas (A2), y operaciones con
+validacion de integridad deficiente (A7). La proteccion del frontend por si
+sola no seria suficiente, pero en estos casos el backend SI falla o es laxo,
+por lo que son hallazgos validos.
+
+
+7. TABLA COMPLETA DE ENDPOINTS Y PROTECCION
+-------------------------------------------
+Convencion: AUTH = requiere token; ROL = restriccion por rol; ESCR = permite
+escritura; DIRECTO = invocable directamente sin frontend (todos lo son, la API
+es HTTP; se indica cuando la proteccion depende solo del token).
+
+RUTAS DE AUTENTICACION (/api/auth):
+  POST /login          | PUBLICO    | crea sesion (token)     | Riesgo: fuerza bruta (A3)
+  GET  /profile        | AUTH       | lectura                 | OK
+  POST /register       | AUTH + admin| crea usuarios          | OK rol; sin politica de password (M4); puede crear admins (solo admin puede llamarlo)
+
+RUTAS DE USUARIOS (/api/usuarios - router.use admin):
+  GET  /               | AUTH+admin | lectura                 | OK
+  POST /               | AUTH+admin | crea usuario            | OK; sin largo minimo de password (M4)
+  PUT  /:id            | AUTH+admin | modifica nombre/rol/activo/password | OK; admin puede auto-desactivarse (B3)
+  PATCH /:id/estado    | AUTH+admin | activa/desactiva        | OK (protege ultimo admin y auto-desactivacion)
+
+RUTAS DE VENTAS (/api/ventas):
+  GET  /estadisticas          | AUTH+ROL admin/encargada | lectura  | OK
+  GET  /productos-mas-vendidos| AUTH+ROL admin/encargada | lectura  | OK
+  GET  /serie                 | AUTH                     | lectura  | FALLA - vendedor ve caja diaria (A2)
+  GET  /                      | AUTH+ROL admin/encargada | lectura  | OK
+  GET  /:id                   | AUTH+ROL admin/encargada | lectura  | OK
+  POST /                      | AUTH                     | crea venta (BORRADOR) | OK (intencionado)
+  PUT  /:id                   | AUTH                     | edita BORRADOR ajeno   | FALLA - sin rol/propiedad (A1)
+  PATCH /:id/confirmar        | AUTH                     | confirma, descuenta stock | FALLA - sin rol/propiedad (A1)
+  PATCH /:id/anular           | AUTH+ROL admin           | anula, repone stock    | OK
+
+RUTAS DE PRODUCTOS (/api/productos):
+  GET /stats, GET /, GET /:id | AUTH | lectura | OK (vendedor necesita listado para el POS)
+  POST /, PUT /:id, DELETE /:id | AUTH+ROL admin/encargada | escritura | OK; DELETE sin referencias (A7)
+
+RUTAS DE CATEGORIAS (/api/categorias) y PROVEEDORES (/api/proveedores):
+  GET *  | AUTH | lectura | OK
+  POST/PUT/DELETE | AUTH+ROL admin/encargada | escritura | OK; DELETE categorias sin chequeo de productos (A7)
+
+RUTAS DE COMPRAS (/api/compras - todas admin/encargada):
+  GET /resumen, GET /, GET /:id | AUTH+ROL | lectura | OK
+  POST /, PUT /:id, PATCH /:id/confirmar | AUTH+ROL | escritura | OK rol; PUT acepta estado "CONFIRMADA" en el body sin incrementar stock (integritad)
+
+RUTAS DE CLIENTES (/api/clientes):
+  GET /stats, /cuentas-por-cobrar, /:id/movimientos | AUTH+ROL admin/encargada | lectura | OK
+  GET /:id/saldo | AUTH | lectura | LAXO (vendedor consulta saldo de cualquier cliente - necesario para POS; M5)
+  GET /, GET /:id | AUTH | lectura | LAXO (listado completo de clientes a vendedor; M5)
+  POST / | AUTH | crea cliente | LAXO (vendedor crea clientes - por diseno POS; M5)
+  PUT /:id, DELETE /:id | AUTH+ROL admin/encargada | escritura | OK; DELETE sin referencias (A7)
+  POST /:id/abonos | AUTH+ROL admin/encargada | registra abono | OK (validado saldo)
+
+RAIZ:
+  GET / | PUBLICO | banner informativo | B1
+
+Todos los endpoints pueden llamarse directamente (API HTTP); la proteccion
+efectiva es el token + middleware de rol, que esta presente en las rutas
+sensibles salvo los casos marcados como FALLA/LAXO.
+
+
+8. LOGS
+-------
+Se encontraron 16 usos de console.* en el backend (0 en frontend):
+- backend/src/config/db.js:5-8  - imprime MONGODB_URI (A5). RIESGO ALTO si la
+  URI contiene credenciales.
+- backend/src/config/db.js:14-15 - imprime el error completo de conexion
+  (puede incluir la URI). RIESGO ALTO (A5).
+- backend/src/config/database.js:6,8 - duplicado muerto sin uso (no se importa
+  en ningun lado). BAJO.
+- backend/src/server.js:18 - aviso de creacion de admin (no sensible). BAJO.
+- backend/src/server.js:26 - puerto (no sensible). BAJO.
+- backend/scripts/seedUsers.js:10,15,55-57,59 - nombres y roles de usuarios,
+  sin contrasenas. BAJO.
+No se encontro ningun console.log de contrasenas, hashes, JWT, JWT_SECRET ni
+tokens en ninguna parte. No hay logs de requests ni de autenticacion.
+
+
+9. MONGODB
+----------
+- Conexion: mongoose.connect(process.env.MONGODB_URI) (db.js:10). URI local sin
+  credenciales en el .env actual (mongodb://localhost:27017/lapalmera - sin
+  usuario/contraseña). NO se revela el valor en este informe.
+- Autenticacion: la URI actual NO incluye credenciales; en produccion debe
+  configurarse un usuario de BD con rol limitado (no root) y la URI con
+  credenciales via variables de entorno del servidor.
+- Exposicion: db.js loguea la URI (A5).
+- Logs de conexion: solo db.js y database.js (este ultimo muerto).
+- Configuracion peligrosa: no hay enable a open bindings desde el codigo;
+  depende del mongod local (por defecto escucha localhost). En produccion debe
+  verificarse que mongod no escuche en 0.0.0.0 sin autenticacion.
+- Conexion sin credenciales: posible si mongod no exige auth (configuracion
+  actual del entorno local); no es un defecto del codigo de la app.
+- Operaciones destructivas desde endpoints: DELETE /productos/:id,
+  DELETE /clientes/:id, DELETE /categorias/:id, PATCH /ventas/:id/anular,
+  PATCH /compras/:id/confirmar (stock), PUT /compras/:id (estado) - todas
+  autenticadas y con rol (anular solo admin), pero las de borrado no validan
+  referencias (A7).
+
+
+10. DATOS SENSIBLES
+-------------------
+- Contrasenas: hasheadas con bcrypt en BD; nunca se devuelven (toJSON las
+  elimina; listarUsuarios usa select("-password")). En texto plano solo en
+  backend/.env (A8) y en el codigo de server.js (C1).
+- Hashes: no expuestos en ninguna respuesta.
+- Tokens: solo en localStorage/sessionStorage del navegador (M1); no en logs
+  ni respuestas.
+- Informacion de clientes: el listado completo (telefono, direccion, comuna,
+  limiteFiado, saldo) es visible para vendedores (M5). Los movimientos de
+  cuentas y cuentas-por-cobrar estan restringidos a admin/encargada.
+- Informacion financiera: estadisticas y reportes restringidos a
+  admin/encargada; serie diaria filtrada a vendedores (A2).
+- Datos internos de MongoDB: mensajes de error con error.message pueden
+  filtrar detalles de operaciones de BD (A6).
+
+
+11. OPERACIONES CRITICAS
+------------------------
+- Anulacion de ventas: solo admin (OK); transaccional con restauracion de
+  stock y anulacion de movimientos de cuenta (OK; fix de la fase A.2 ya
+  aplicado y verificado).
+- Abonos: admin/encargada (OK); valida cliente activo y que el abono no supere
+  la deuda (OK); sin documento de respaldo del pago (riesgo operacional).
+- Ventas fiadas: validan cliente activo, limiteFiado > 0 y deuda proyectada
+  (OK); el registro de VENTA_FIADA es transaccional con el descuento de stock.
+- Actualizacion de stock: solo via confirmar/anular de ventas y confirmar de
+  compras, todos transaccionales (OK); EXCEPCION: PUT /api/compras/:id acepta
+  estado "CONFIRMADA" sin tocar stock (integritad).
+- Compras: restringidas a admin/encargada (OK); sin anulacion de compras
+  (riesgo operacional de irreversibilidad).
+- Eliminacion de productos/clientes/categorias: rol correcto pero sin
+  validacion de referencias (A7) - evidencia de huerfanos en la base.
+- Modificacion de usuarios: solo admin (OK); con protecciones de ultimo admin;
+  falta bloqueo de auto-desactivacion en PUT (B3).
+- Confirmar ventas: sin rol ni propiedad (A1) - la operacion que mas impacto
+  tiene sobre stock queda abierta a cualquier autenticado.
+
+
+12. DEPENDENCIAS
+----------------
+npm audit ejecutado en SOLO LECTURA (sin fix):
+
+Backend (package.json): express 5.2.1, mongoose 9.7.4, jsonwebtoken 9.0.3,
+bcryptjs 3.0.3, cors 2.8.5, dotenv 17.4.2, nodemon 3.1.14 (dev).
+  Resultado: 1 HIGH (brace-expansion < 5.0.9, via nodemon - solo desarrollo,
+  DoS por expansion; sin impacto en produccion).
+
+Frontend (package.json): react 19.2.7, react-dom 19.2.7, react-router-dom
+7.18.1, bootstrap 5.3.8, vite 8.1.1, eslint 10.6.0.
+  Resultado: 5 HIGH (0 criticas):
+  - react-router-dom 7.18.1 (dependencia directa): CSRF en modo RSC
+    (GHSA-qwww-vcr4-c8h2, afecta 7.12.0 - 7.18.1). El proyecto usa
+    BrowserRouter sin modo RSC, por lo que no es explotable en el uso actual,
+    pero debe actualizarse (>= 7.18.2).
+  - postcss <= 8.5.22 y nanoid < 3.3.18 (via vite, build-time).
+  - brace-expansion (via vite toolchain).
+
+No hay paquetes innecesarios relevantes. No existe infraestructura de tests
+("test": "echo Error: no test specified" en backend).
+
+
+13. FRONTEND
+------------
+- ProtectedRoute.jsx: redirige a /login si no hay sesion y a /ventas si el rol
+  no esta permitido. Correcto como UX, pero es solo UI: la autoridad real es
+  el backend (presente en los casos OK de la seccion 7).
+- Sidebar.jsx: filtra el menu por rol (correcto, solo visual).
+- AppRoutes.jsx: rutas por rol (correcto, solo UI).
+- Login.jsx: no almacena credenciales en el navegador (solo el token y el
+  usuario via AuthContext cuando se usa "Recordar sesion").
+- Almacenamiento del token: localStorage ("recordar") o sessionStorage
+  (AuthContext.jsx:20-27) - riesgo XSS (M1).
+- api.js: adjunta Authorization Bearer; en 401 limpia sesion y redirige a
+  /login con mensaje amigable (correcto).
+- No hay credenciales ni secretos en el frontend (api.js usa "/api" relativo;
+  vite.config.js solo define proxy de desarrollo).
+- Acceso directo a rutas protegidas: posible navegando a la URL, pero el
+  backend rechaza sin token/rol (salvo los hallazgos A1/A2).
+- Informacion sensible en storage: el objeto "lapalmera-user" guarda rol y
+  datos del usuario (no contrasenas).
+
+
+14. PWA / PRODUCCION
+--------------------
+- sw.js: estrategia correcta y segura - solo cachea assets estaticos y app
+  shell; EXCLUYE /api (lineas 53-55); navegaciones network-first (58-63);
+  activacion limpia cachés viejas (30-43). No cachea datos privados.
+- manifest.json: sin datos sensibles (solo nombre, colores, iconos).
+- No hay configuracion que exponga informacion sensible.
+- Nota de produccion: la app asume que el backend sirve /api desde el mismo
+  origen (PWA instalada); si se separan origenes, CORS debe configurarse (A4).
+
+
+15. LISTA PRIORIZADA DE CORRECCIONES
+------------------------------------
+Orden sugerido (por severidad e impacto):
+
+1. [CRITICO] Eliminar auto-creacion de admin y su contrasena por defecto.
+   Archivo: server.js:9-20,24 | Riesgo: acceso total | Solucion: script unico
+   de primer admin con password por entorno; eliminar crearAdminSiNoExiste;
+   verificar no existencia de admin/1234 en produccion.
+2. [CRITICO] Rotar JWT_SECRET a valor aleatorio (64+ bytes) en entorno de
+   produccion y reducir expiracion (o refresh tokens).
+   Archivo: backend/.env:3; authController.js:5 | Riesgo: firma de tokens falsos.
+3. [ALTO] Restringir confirmar/editar ventas: rol admin/encargada o propiedad
+   (venta.usuario === req.usuario._id). Archivo: ventaRoutes.js:45-46;
+   ventaService.js:292-299 | Riesgo: manipulacion de ventas y stock.
+4. [ALTO] Restringir GET /api/ventas/serie a admin/encargada.
+   Archivo: ventaRoutes.js:41.
+5. [ALTO] Rate limiting en /api/auth/login (+ bloqueo por intentos).
+   Archivo: authRoutes.js:11; authController.js:8-32.
+6. [ALTO] CORS por allowlist segun entorno. Archivo: app.js:14.
+7. [ALTO] Dejar de loguear MONGODB_URI y errores completos de conexion.
+   Archivo: db.js:5-8,14-15.
+8. [ALTO] No exponer error.message al cliente; loguear en servidor.
+   Archivos: authController.js:30; userController.js:26,58,98,144;
+   ventaController.js:10,98,123.
+9. [ALTO] Validar referencias antes de borrar producto/cliente/categoria
+   (o borrado logico). Archivos: productService.js, clientService.js,
+   categoryService.js | Evidencia: 5 detalleventas + 2 detallecompras huerfanos.
+10. [ALTO] Retirar contrasenas del .env local y gestionar secretos solo en el
+    entorno de produccion; rotar contrasenas de usuarios funcionales.
+11. [MEDIO] Evaluar token en cookie HttpOnly o mitigar XSS + expiracion corta.
+    Archivo: AuthContext.jsx:20-27.
+12. [MEDIO] Actualizar dependencias: react-router-dom >= 7.18.2 (frontend);
+    revisar vite/postcss/nanoid; brace-expansion via nodemon (backend, dev).
+13. [MEDIO] Politica de contrasenas (minimo 8 caracteres) en crear/actualizar
+    usuario. Archivo: userController.js:34-42,87.
+14. [MEDIO] Revisar exposicion de datos de clientes a vendedor (campos del
+    listado y saldo). Archivo: clientRoutes.js:35-39; clientService.
+15. [MEDIO] Bloquear admin de auto-desactivarse por PUT /usuarios/:id.
+    Archivo: userController.js:86.
+16. [BAJO] Headers de seguridad (helmet/CSP). Archivo: app.js.
+17. [BAJO] Neutralizar GET /. Archivo: app.js:17-19.
+18. [BAJO] Eliminar database.js (duplicado muerto). Archivo: config/database.js.
+
+
+VERIFICACION FINAL
+------------------
+- git status: SIN cambios nuevos en esta fase. El arbol es identico al estado
+  previo (los archivos modificados/untracked listados son los mismos de las
+  fases anteriores, incluido el cambio autorizado de la FASE A.2 en
+  movimientoCuentaService.js). Ningun archivo fue tocado por esta auditoria.
+- git diff: no existe diff adicional de esta fase (el diff de
+  movimientoCuentaService.js corresponde al fix autorizado de la fase A.2).
+- MongoDB: NO se modifico. Esta fase realizo solo lecturas (find/aggregate/
+  countDocuments). No se ejecutaron scripts de escritura.
+- Usuarios: NO se crearon ni modificaron. Yasna, Karla y Vendedor intactos.
+- Procesos Node: esta auditoria no inicio ningun proceso. Los procesos node en
+  ejecucion (npm run dev frontend, vite, npm run dev backend, nodemon, iniciados
+  a las 12:04) pertenecen al entorno de desarrollo del usuario y quedan
+  intactos; el hijo de nodemon (node ./src/server.js) se reinicio a las 16:31
+  por el cambio autorizado de la FASE A.2 (comportamiento normal de nodemon).
+- npm audit: ejecutado en SOLO LECTURA (sin --fix).
+- El unico archivo nuevo de esta fase: docs/informe-fase-web-b1-seguridad.txt.
+- Sin commit, sin push.

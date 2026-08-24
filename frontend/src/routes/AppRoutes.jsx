@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "../components/ProtectedRoute";
 import MainLayout from "../layouts/MainLayout";
 import Login from "../pages/Login/Login";
@@ -23,18 +23,34 @@ function AppRoutes() {
       <Route element={<ProtectedRoute />}>
         <Route element={<MainLayout />}>
           <Route path="/" element={<Navigate to="/ventas" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/inventario" element={<Inventario />} />
-          <Route path="/productos" element={<Productos />} />
-          <Route path="/categorias" element={<Categorias />} />
+          <Route
+            element={
+              <ProtectedRoute roles={["admin", "encargada"]}>
+                <Outlet />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/inventario" element={<Inventario />} />
+            <Route path="/productos" element={<Productos />} />
+            <Route path="/categorias" element={<Categorias />} />
+            <Route path="/ventas/historial" element={<HistorialVentas />} />
+            <Route path="/compras" element={<Compras />} />
+            <Route path="/clientes" element={<Clientes />} />
+            <Route path="/proveedores" element={<Proveedores />} />
+            <Route path="/reportes" element={<Reportes />} />
+          </Route>
+          <Route
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <Outlet />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/usuarios" element={<Usuarios />} />
+            <Route path="/configuracion" element={<Configuracion />} />
+          </Route>
           <Route path="/ventas" element={<Ventas />} />
-          <Route path="/ventas/historial" element={<HistorialVentas />} />
-          <Route path="/compras" element={<Compras />} />
-          <Route path="/clientes" element={<Clientes />} />
-          <Route path="/proveedores" element={<Proveedores />} />
-          <Route path="/usuarios" element={<Usuarios />} />
-          <Route path="/reportes" element={<Reportes />} />
-          <Route path="/configuracion" element={<Configuracion />} />
         </Route>
       </Route>
 

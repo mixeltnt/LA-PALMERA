@@ -212,7 +212,7 @@ function Compras() {
 
   return (
     <div>
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
         <div>
           <h3 className="fw-bold mb-1">Compras</h3>
           <p className="text-muted small mb-0">
@@ -288,7 +288,7 @@ function Compras() {
                         </td>
                         <td className="text-center">
                           <button
-                            className="btn btn-sm btn-outline-primary me-1"
+                            className="btn btn-sm btn-outline-primary btn-icon"
                             onClick={() => openDetail(c._id)}
                             title="Detalle"
                           >
@@ -308,7 +308,7 @@ function Compras() {
                 </table>
               </div>
               {totalPages > 1 && (
-                <div className="d-flex justify-content-between align-items-center px-3 py-3 border-top">
+                <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 px-3 py-3 border-top">
                   <small className="text-muted">
                     Página {page} de {totalPages} ({total} compras)
                   </small>
@@ -440,11 +440,11 @@ function Compras() {
                 </div>
 
                 <div className="mt-4">
-                  <div className="d-flex justify-content-between align-items-center mb-2">
+                  <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                     <h6 className="fw-bold mb-0">Productos</h6>
                     <button
                       type="button"
-                      className="btn btn-sm btn-outline-success"
+                      className="btn btn-outline-success"
                       onClick={addLine}
                     >
                       <i className="bi bi-plus-lg me-1"></i>Agregar producto
@@ -466,7 +466,7 @@ function Compras() {
                           <tr key={index}>
                             <td>
                               <select
-                                className="form-select form-select-sm"
+                                className="form-select"
                                 value={line.producto}
                                 onChange={(e) =>
                                   handleLineChange(
@@ -486,7 +486,7 @@ function Compras() {
                             </td>
                             <td>
                               <input
-                                className="form-control form-control-sm"
+                                className="form-control"
                                 type="number"
                                 min="1"
                                 value={line.cantidad}
@@ -501,7 +501,7 @@ function Compras() {
                             </td>
                             <td>
                               <input
-                                className="form-control form-control-sm"
+                                className="form-control"
                                 type="number"
                                 min="0"
                                 step="0.01"
@@ -579,7 +579,7 @@ function Compras() {
           tabIndex={-1}
           style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
         >
-          <div className="modal-dialog modal-lg modal-dialog-centered">
+          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title fw-bold">
@@ -614,6 +614,7 @@ function Compras() {
                     <div>{detalleCompra.compra.estado}</div>
                   </div>
                 </div>
+                <div className="table-responsive">
                 <table className="table table-sm">
                   <thead className="table-light">
                     <tr>
@@ -638,6 +639,7 @@ function Compras() {
                     ))}
                   </tbody>
                 </table>
+              </div>
                 <div className="text-end fw-bold mt-3">
                   Total: $
                   {Number(detalleCompra.compra.total || 0).toLocaleString(
@@ -652,7 +654,7 @@ function Compras() {
 
       {toast && (
         <div
-          className="position-fixed bottom-0 end-0 p-3"
+          className="app-toast position-fixed bottom-0 end-0 p-3"
           style={{ zIndex: 9999 }}
         >
           <div

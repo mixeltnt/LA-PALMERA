@@ -6,22 +6,26 @@ import app from "./app.js";
 
 const PORT = process.env.PORT || 4000;
 
-async function crearAdminSiNoExiste() {
-  const existe = await User.findOne({ usuario: "admin" });
-  if (!existe) {
-    await User.create({
-      nombre: "Administrador",
-      usuario: "admin",
-      password: "1234",
-      rol: "admin",
-    });
-    console.log("👤 Usuario admin creado automáticamente");
+function validarEntorno() {
+  if (!process.env.JWT_SECRET) {
+    console.error("JWT_SECRET no está configurado");
+    process.exit(1);
+  }
+}
+
+async function advertirSiNoHayAdmin() {
+  const admins = await User.countDocuments({ rol: "admin", activo: true });
+  if (admins === 0) {
+    console.warn(
+      "No existe un administrador activo. Créelo mediante el mecanismo seguro de administración (seed) antes de usar la aplicación.",
+    );
   }
 }
 
 async function start() {
+  validarEntorno();
   await conectarDB();
-  await crearAdminSiNoExiste();
+  await advertirSiNoHayAdmin();
   app.listen(PORT, () => {
     console.log(`Servidor ejecutándose en el puerto ${PORT}`);
   });

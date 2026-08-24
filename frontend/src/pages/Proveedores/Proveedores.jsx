@@ -241,7 +241,7 @@ function Proveedores() {
 
   return (
     <div>
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
         <div>
           <h3 className="fw-bold mb-1">Proveedores</h3>
           <p className="text-muted small mb-0">
@@ -328,14 +328,14 @@ function Proveedores() {
                         </td>
                         <td className="text-center">
                           <button
-                            className="btn btn-sm btn-outline-primary me-1"
+                            className="btn btn-sm btn-outline-primary btn-icon me-1"
                             onClick={() => openEdit(p)}
                             title="Editar"
                           >
                             <i className="bi bi-pencil"></i>
                           </button>
                           <button
-                            className="btn btn-sm btn-outline-danger"
+                            className="btn btn-sm btn-outline-danger btn-icon"
                             onClick={() => confirmDelete(p._id)}
                             title="Eliminar"
                           >
@@ -356,7 +356,7 @@ function Proveedores() {
               </div>
 
               {totalPages > 1 && (
-                <div className="d-flex justify-content-between align-items-center px-3 py-3 border-top">
+                <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 px-3 py-3 border-top">
                   <small className="text-muted">
                     Página {page} de {totalPages} ({total} proveedores)
                   </small>
@@ -646,7 +646,7 @@ function Proveedores() {
 
       {toast && (
         <div
-          className="position-fixed bottom-0 end-0 p-3"
+          className="app-toast position-fixed bottom-0 end-0 p-3"
           style={{ zIndex: 9999 }}
         >
           <div

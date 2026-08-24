@@ -115,11 +115,11 @@ export async function eliminar(id) {
   const categoria = await Category.findById(id);
   if (!categoria) throw new Error("Categoría no encontrada.");
 
-  const productosAsociados = await Product.countDocuments({ categoria: categoria.nombre });
+  const productosAsociados = await Product.countDocuments({ categoria: id });
   if (productosAsociados > 0) {
     const err = new Error(`No se puede eliminar la categoría porque tiene ${productosAsociados} producto(s) asociado(s).`);
     err.errores = [`La categoría "${categoria.nombre}" tiene ${productosAsociados} producto(s) asociado(s). Desasocia o elimina los productos primero.`];
-    err.status = 400;
+    err.status = 409;
     throw err;
   }
 

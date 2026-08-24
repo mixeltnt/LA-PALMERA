@@ -1,0 +1,365 @@
+INFORME - LA PALMERA COMO APLICACION LOCAL EN WINDOWS
+=====================================================
+Fecha: 15 de agosto de 2026
+Tipo: auditoria SOLO LECTURA. No se modifico ningun archivo, ni .env,
+ni MongoDB, ni usuarios, ni package.json. Sin commit, sin push, sin
+servicios levantados, sin procesos tocados.
+
+========================================================================
+1. ESTADO ACTUAL DEL SISTEMA (verificado en esta auditoria)
+========================================================================
+- Frontend: React 19 + Vite 8 + react-router-dom 7 + Bootstrap.
+  * frontend/vite.config.js: proxy /api -> http://localhost:4000
+    SOLO para el dev server (no aplica en produccion).
+  * frontend/src/services/api.js: const API_URL = "/api" (ruta
+    RELATIVA: cualquier origen que sirva /api en el mismo dominio
+    funciona sin cambios y sin CORS).
+  * Build: npm run build genera frontend/dist/ (YA EXISTE con
+    index.html del ultimo build; assets con rutas absolutas /assets/...,
+    compatible con servir el dist desde la raiz de cualquier origen).
+  * PWA: manifest + sw.js. El service worker SOLO se registra en
+    produccion (import.meta.env.PROD) y solo funciona con HTTPS o
+    localhost; en http://IP-local:4000 se omitira silenciosamente
+    (catch en main.jsx) y la app seguira funcionando como web normal.
+- Backend: Node/Express 5 ESM + Mongoose 9.
+  * npm start -> node ./src/server.js (listo).
+  * app.listen(PORT) SIN host fijo: ya escucha en todas las interfaces
+    (0.0.0.0) -> listo para acceso por Wi-Fi desde celulares.
+  * PORT desde .env (actualmente 4000).
+  * JWT_SECRET obligatorio al arrancar (validacion de la fase B.2.1).
+  * CORS por lista localhost + CORS_ORIGINS (fase B.2.3). Con el
+    frontend servido por el propio backend, las peticiones son del
+    MISMO origen y CORS ni siquiera se aplica.
+  * No existe express.static ni sendFile en backend/src: hoy el backend
+    NO sirve el frontend compilado (confirmado por grep).
+- Entorno: Node v24.16.0 instalado. IP local del PC (Wi-Fi):
+  192.168.1.90 (las direcciones 169.254.x son APIPA/sin conexion).
+- .env (backend, gitignored, no revelado): PORT, MONGODB_URI,
+  JWT_SECRET, YASNA_PASSWORD, KARLA_PASSWORD, VENDEDOR_PASSWORD.
+- Sin launcher, sin scripts de produccion local, sin archivos .bat/.ps1.
+
+========================================================================
+2. ARQUITECTURA PROPUESTA (para la fase de implementacion futura)
+========================================================================
+Un solo proceso Node visible + un launcher invisible:
+
+  [Acceso directo Escritorio] -> node la-palmera.cjs (ventana OCULTA)
+        |  1. verifica node y dist
+        |  2. (si falta dist) ejecuta npm run build (frontend)
+        |  3. lanza backend: node src/server.js (proceso hijo oculto)
+        |  4. sondea http://localhost:4000/ hasta responder
+        |  5. abre http://localhost:4000 en Chrome/Edge
+        |  6. vigila el backend; si muere, lo relanza (reintentos+log)
+        v
+  Backend Express en PUERTO 4000 (0.0.0.0)
+        |  /api/*  (API actual, intacta)
+        |  /*      (frontend compilado: express.static(frontend/dist)
+        |           + SPA fallback -> index.html)
+        v
+  MongoDB Atlas (MONGODB_URI del .env, intacta)
+
+Claves de la arquitectura:
+- El backend pasa a servir tambien el dist del frontend: UNA URL
+  (http://localhost:4000 en el PC, http://192.168.1.90:4000 en el
+  celular). Con ruta relativa /api, no hay CORS y no hay que tocar
+  api.js.
+- El launcher es un script Node (.cjs) SIN dependencias nuevas:
+  usa child_process.spawn (windowsHide: true), fetch (Node 24 tiene
+  fetch nativo) para sondeo, y guarda logs + PID en archivos.
+- Cierre: segundo acceso directo "Cerrar La Palmera" que detiene el
+  backend leyendo el PID guardado (Stop-Process) y el launcher termina
+  al detectar que su hijo murio. Cierre limpio opcional con señales.
+- Recuperacion: el launcher respawnea el backend automaticamente
+  (hasta N intentos consecutivos, con espera creciente) y registra
+  el motivo en logs/lapalmera.log.
+
+========================================================================
+3. FLUJO DE INICIO
+========================================================================
+1. Doble clic en "LA PALMERA" (Escritorio).
+2. Launcher (oculto) verifica: node disponible, backend/.env presente,
+   JWT_SECRET configurado.
+3. Si frontend/dist no existe o falta index.html: ejecuta
+   npm run build (frontend) - primera vez o tras cambios de codigo.
+4. Lanza el backend (spawn oculto, hereda el .env).
+5. Sondea GET http://localhost:4000/ cada 500 ms (max 30 s).
+6. Abre el navegador por defecto (o Chrome/Edge) en
+   http://localhost:4000.
+7. Queda vigilando; si el backend cae, lo relanza (log de cada evento).
+8. El usuario usa la app con doble clic en el icono del escritorio.
+
+========================================================================
+4. FLUJO DE CIERRE
+========================================================================
+1. Doble clic en "Cerrar LA PALMERA" (Escritorio).
+2. El script de cierre lee logs/lapalmera.pid y ejecuta
+   Stop-Process -Id <pid> (o TASKKILL /PID <pid>) sobre el backend.
+3. El launcher detecta la muerte de su hijo, escribe "detenido por el
+   usuario" en el log y termina por si mismo.
+4. MongoDB Atlas queda desconectado por el cierre del proceso
+   (sin corrupcion: la base es remota y tolerante).
+5. Alternativa de emergencia: Ctrl+C o cerrar el proceso en el
+   Administrador de tareas (el launcher termina igualmente).
+Nota: cerrar el navegador NO detiene los servicios (comportamiento
+deseado: la app sigue disponible para el celular; se detiene con el
+acceso directo de cierre).
+
+========================================================================
+5. ARCHIVOS QUE HABRIA QUE CREAR (fase de implementacion, NO ahora)
+========================================================================
+a) scripts/la-palmera.cjs  -> launcher principal (spawn oculto, sondeo,
+   respawn, PID/log). Sin dependencias.
+b) scripts/cerrar-lapalmera.cmd -> lee el PID y lo detiene
+   (o version .vbs/.ps1 equivalente).
+c) Acceso directo en el Escritorio -> "LA PALMERA.lnk" apuntando a:
+   <ruta>\node.exe scripts\la-palmera.cjs  (working dir: raiz del
+   proyecto; icono: frontend\public\favicon.svg o icono .ico generado).
+   El .lnk se crea una vez con un pequeno script de instalacion
+   (scripts/instalar-accesos.cmd) que tambien crea "Cerrar LA PALMERA".
+d) scripts/instalar-accesos.cmd -> crea los accesos directos y la
+   regla de firewall (ver punto 18).
+e) logs/ (directorio generado por el launcher: lapalmera.log,
+   lapalmera.pid).
+f) (Opcional) scripts/desinstalar-lapalmera.cmd -> revierte todo
+   (ver punto 11 del apartado de desinstalacion).
+
+========================================================================
+6. ARCHIVOS QUE HABRIA QUE MODIFICAR (fase de implementacion, NO ahora)
+========================================================================
+a) backend/src/app.js (UNICO cambio de codigo necesario):
+   - Agregar al final (despues de las rutas /api, antes del manejo de
+     404 actual): express.static(<frontend/dist>) + SPA fallback:
+     app.use(express.static(rutaDist));
+     app.get("*", (req,res) => res.sendFile(index.html)); (GET no /api)
+   - Debe ejecutarse SOLO si el dist existe (si no, el backend sigue
+     como hoy y el 404 JSON de /api se conserva).
+   - NO toca ninguna logica de rutas /api, servicios, auth ni CORS.
+b) NINGUN otro archivo: api.js queda igual (ruta relativa /api),
+   vite.config.js queda igual (solo dev), package.json sin cambios,
+   .env sin cambios, MongoDB/usuarios/auth/roles sin cambios.
+
+========================================================================
+7. DEPENDENCIAS ADICIONALES
+========================================================================
+NINGUNA. El launcher usa solo modulos nativos de Node (child_process,
+fs, path, net/http) y el fetch nativo de Node 24. No se instala nada,
+no se toca package.json (ni raiz ni backend ni frontend).
+
+========================================================================
+8. COMPARACION DE OPCIONES DE LAUNCHER (punto 12-13 del pedido)
+========================================================================
+a) .bat simple: minimo, pero muestra ventana negra (antipatico) y
+   gestion de procesos/reintentos rudimentaria. Descartado como
+   mecanismo principal; util solo como puente a otras opciones.
+b) PowerShell (.ps1): puede ocultar ventana (powershell -WindowStyle
+   Hidden / Start-Process), pero el control de procesos hijos,
+   reinicios y sondeo es mas verboso que en Node; ademas depende de la
+   politica de ejecucion de scripts (ExecutionPolicy) que puede estar
+   restringida en el PC del negocio. Alternativa valida, no la mejor.
+c) Node launcher (.cjs): RECOMENDADO. Node ya esta instalado (v24),
+   sin dependencias, spawn con windowsHide:true (cero ventanas negras),
+   fetch nativo para sondeo, control total de reinicio/logs/PID, mismo
+   lenguaje del proyecto, facil de leer y modificar.
+d) .exe empaquetado (pkg/nexe/electron): innecesario; requiere
+   herramientas extra, binarios grandes y recompilacion en cada cambio.
+   Descartado.
+e) NSSM (servicio de Windows): gestiona el backend como servicio
+   (arranque automatico al iniciar el sistema, reinicio, sin consola).
+   Util SOLO si en el futuro se quiere que La Palmera arranque sin
+   doble clic (al encender el PC). No necesario hoy: el requisito es
+   doble clic desde el escritorio. Queda como opcion futura, no como
+   dependencia actual (nssm.exe es un binario externo descargable).
+f) PM2: excelente en Linux; en Windows el auto-arranque se apoya en el
+   Programador de tareas, requiere instalacion global (npm i -g pm2) y
+   agrega una capa que el negocio no necesita para un solo proceso.
+   Descartado; el respawn del launcher cubre la recuperacion.
+g) node-windows (npm): instala servicios via script; misma conclusion
+   que NSSM: opcion futura, no necesaria hoy.
+RECOMENDACION FINAL: Node launcher (.cjs) + (futuro, opcional) NSSM si
+se desea arranque automatico al encender el PC.
+
+========================================================================
+9. EVITAR VENTANAS NEGRAS (punto 14)
+========================================================================
+- El launcher se lanza desde el acceso directo con "node scripts\
+  la-palmera.cjs" y todos los procesos hijos se crean con
+  child_process.spawn(..., { windowsHide: true }) -> ninguna consola
+  visible.
+- El backend hereda stdout/stderr redirigido al archivo logs\lapalmera.log
+  (el log tambien sirve para diagnosticar sin consola).
+- El acceso directo usa el icono de la palmera para que se vea
+  "aplizado" (no como consola).
+- El acceso "Cerrar LA PALMERA" usa .cmd con minimizado/oculto o
+  powershell -WindowStyle Hidden (solo un parpadeo breve, o un .vbs
+  que oculta por completo).
+
+========================================================================
+10. RECUPERACION DEL BACKEND SI SE CAE (punto 16)
+========================================================================
+- El launcher monitorea el proceso hijo (evento "exit") y respawnea
+  automaticamente con espera creciente (p. ej. 1 s, 2 s, 5 s) hasta
+  5 intentos consecutivos; si falla 5 veces seguidas, escribe un error
+  claro en logs/lapalmera.log y lo reintenta al volver a hacer doble
+  clic (o al detectar demanda).
+- Causas tipicas: crash de nodemon-less, puerto ocupado (EADDRINUSE),
+  MONGODB_URI caida (Atlas). El launcher distingue "puerto ocupado"
+  para mostrar error claro: "El puerto 4000 ya esta en uso".
+- El usuario ve un mensaje claro: el launcher puede abrir un cuadro
+  (msg / VBScript) si el backend no logra arrancar en 30 s.
+- JWT_SECRET ausente: el backend muere al instante con mensaje claro
+  (validacion B.2.1); el launcher lo captura y avisa "Revise la
+  configuracion .env (JWT_SECRET)".
+
+========================================================================
+11. ACCESO DESDE CELULARES POR WIFI (puntos 17-20)
+========================================================================
+- Backend ya escucha en 0.0.0.0 (app.listen(PORT) sin host) -> listo.
+- Red: el PC y los celulares deben estar en la MISMA red Wi-Fi.
+- IP del PC (hoy): 192.168.1.90 (Wi-Fi). Las 169.254.x del listado
+  son APIPA (sin DHCP): ignorar.
+- URL del celular: http://192.168.1.90:4000  (misma app completa:
+  login, POS, reportes; /api es relativo -> mismo origen -> sin CORS).
+- Firewall de Windows (punto 18): regla de entrada para TCP 4000
+  (perfil Privado; si la red Wi-Fi del minimarket figura como
+  "Publica", agregar tambien ese perfil). Comando (futuro):
+  netsh advfirewall firewall add rule name="LA PALMERA 4000"
+  dir=in action=allow protocol=TCP localport=4000 profile=private
+  (y profile=public si aplica). Verificar que la red Wi-Fi este
+  marcada como "Red privada" en Windows (Configuracion > Red).
+- IP fija (punto 19): reservar 192.168.1.90 en el router (reserva
+  DHCP / direccion IP estatica) para que la URL del celular nunca
+  cambie; documentar la IP en un cartel junto al PC.
+- PWA en celular: el service worker necesita HTTPS; en
+  http://192.168.1.90:4000 la PWA NO se registrara (la app funciona
+  igual, sin instalacion/offline). Si se desea PWA instalable en la
+  red local, habria que montar HTTPS local (certificado autofirmado
+  + confianza manual en cada celular: mas complejo, opcional y NO
+  necesario para el objetivo). Desde el propio PC, localhost SI admite
+  SW (la PWA funciona en el PC con Chrome).
+- Seguridad en red local: el acceso a la app sigue pidiendo login
+  (auth intacta); el puerto 4000 solo estara expuesto en la red del
+  negocio (no en Internet). Recomendacion: cambiar las contrasenas
+  por defecto y no usar la red Wi-Fi publica del local si existe una
+  red separada para empleados.
+
+========================================================================
+12. CAMBIOS NECESARIOS PARA PRODUCCION LOCAL (punto 21)
+========================================================================
+- Backend sirve dist (apartado 6): unico cambio de codigo.
+- Build del frontend existente y mantenido (npm run build tras cada
+  cambio de codigo frontend; el launcher lo ejecuta si falta dist).
+- Launcher + accesos directos + firewall + reserva DHCP (apartados 5 y
+  11).
+- No requiere cambios de .env (MONGODB_URI de Atlas se mantiene;
+  JWT_SECRET ya es obligatorio; PORT se deja en 4000).
+- No requiere CORS_ORIGINS (mismo origen) - si en el futuro el
+  celular usara la PWA instalada u otro origen, se agrega al env.
+- El frontend en produccion (dist) no depende del proxy de vite
+  (el proxy es solo dev).
+
+========================================================================
+13. QUE NO DEBEMOS MODIFICAR (punto 23)
+========================================================================
+- Logica funcional: rutas /api, servicios, controllers, auth, roles,
+  permisos, ventas, fiados, reportes, inventario, movimientos.
+- frontend/src/** (salvo que el build futuro lo requiera; hoy no).
+- frontend/vite.config.js (proxy dev intacto para desarrollo).
+- package.json (ninguno de los tres: raiz/frontend/backend).
+- .env (valores y claves actuales se conservan).
+- MongoDB (datos, indices, usuarios) y Mongo Atlas.
+- Informes y documentacion previa (docs/).
+- El 404 JSON de /api y el manejo de errores actuales (B.2.3).
+- No se instala ninguna dependencia npm.
+
+========================================================================
+14. RIESGOS
+========================================================================
+- Puerto 4000 ocupado por otra app: el launcher debe avisar con
+  mensaje claro (EADDRINUSE) en lugar de reintentar en bucle.
+- Red Wi-Fi clasificada como "Publica" en Windows: la regla de
+  firewall no aplicaria; se debe marcar como "Privada" o agregar el
+  perfil publico.
+- IP dinamica del PC: si el router no reserva 192.168.1.90, la URL
+  del celular cambiaria; mitigacion: reserva DHCP + cartel.
+- Router con "aislamiento de cliente" (AP isolation) activado:
+  los celulares no verian al PC; desactivar esa opcion del router.
+- PWA/offline no disponible via IP local (HTTPS): comportamiento
+  esperado, documentado; no afecta el uso normal con conexion.
+- Cierre forzoso del PC (corte de luz): sin datos corruptos (Atlas),
+  pero los procesos quedan colgados; al reiniciar, el launcher detecta
+  el puerto ocupado o lo libera con el script de cierre.
+- Antivirus/Defender puede preguntar al primer lanzamiento del .cmd
+  o bloquear el spawn oculto: aceptar en la maquina del negocio.
+- Node no encontrado: el acceso directo debe usar la ruta absoluta de
+  node.exe (verificar "where node" en el PC destino) y, si falta,
+  mostrar instrucciones de instalacion (choco/installer oficial).
+- Dos instancias del launcher abiertas a la vez: el launcher debe
+  detectar el PID existente (logs/lapalmera.pid) y avisar "LA PALMERA
+  ya esta abierta" en lugar de duplicar procesos.
+- Cambios de codigo frontend futuros: recordar regenerar dist con
+  npm run build (o el launcher lo hace automaticamente si dist no
+  existe; opcional: comparar fechas).
+
+========================================================================
+15. PASOS DE IMPLEMENTACION (para la fase futura, orden sugerido)
+========================================================================
+1. Modificar backend/src/app.js: servir frontend/dist + SPA fallback
+   (solo si dist existe). Verificar con npm start + build existente.
+2. Generar un dist actualizado: cd frontend && npm run build (PASS
+   verificado hoy; regenere por si hubo cambios recientes).
+3. Crear scripts/la-palmera.cjs (launcher: spawn oculto, sondeo 30 s,
+   respawn x5, PID/log, mensajes de error claros).
+4. Crear scripts/cerrar-lapalmera.cmd (lee PID, Stop-Process).
+5. Crear scripts/instalar-accesos.cmd (accesos directos en el
+   Escritorio con icono de la palmera + regla de firewall TCP 4000).
+6. Probar en el PC: doble clic, login real (yasna/karla/vendedor),
+   venta normal, reporte, cierre con el acceso de cierre, relanzado.
+7. Reservar 192.168.1.90 en el router (reserva DHCP).
+8. Probar desde un celular en la misma Wi-Fi: http://192.168.1.90:4000
+   (login + una venta de prueba).
+9. Documentar en un cartel junto al PC: URL local, URL celular,
+   como abrir y como cerrar.
+10. (Opcional futuro) NSSM para arranque automatico al encender el PC.
+
+========================================================================
+16. COMO DESINSTALAR O REVERTIR LA SOLUCION
+========================================================================
+1. Detener: doble clic en "Cerrar LA PALMERA" (o
+   Stop-Process del PID en logs/lapalmera.pid).
+2. Quitar accesos directos del Escritorio ("LA PALMERA" y
+   "Cerrar LA PALMERA").
+3. Quitar la regla de firewall:
+   netsh advfirewall firewall delete rule name="LA PALMERA 4000".
+4. Borrar los archivos creados: scripts/la-palmera.cjs,
+   scripts/cerrar-lapalmera.cmd, scripts/instalar-accesos.cmd,
+   scripts/desinstalar-lapalmera.cmd y la carpeta logs/.
+5. Revertir el unico cambio de codigo en backend/src/app.js
+   (eliminar el bloque express.static + SPA fallback) - o, si se
+   prefirio git, restaurar ese archivo desde el ultimo commit.
+6. Nada mas: no se instalo dependencias, no se toco .env, MongoDB,
+   usuarios, auth ni package.json, por lo que no hay mas que revertir.
+7. El desarrollo normal sigue funcionando intacto (npm run dev con
+   vite + proxy), ya que la solucion local es aditiva.
+
+========================================================================
+17. RESUMEN EJECUTIVO
+========================================================================
+- Arquitectura: UN proceso backend que ademas sirve el dist del
+  frontend (mismo puerto 4000, misma URL, sin CORS) + un launcher Node
+  oculto sin dependencias que arranca, sondea, abre el navegador,
+  vigila y respawnea; cierre con un segundo acceso directo.
+- Unico cambio de codigo: backend/src/app.js (servir estaticos + SPA
+  fallback). Todo lo demas son archivos NUEVOS (launcher, accesos,
+  instalador/desinstalador).
+- Cero dependencias nuevas, cero cambios a .env, MongoDB, usuarios,
+  auth, roles, permisos o package.json.
+- Celular por Wi-Fi: http://192.168.1.90:4000 (misma red, firewall
+  TCP 4000, IP reservada en el router; PWA requiere HTTPS - opcional).
+- Recomendado: Node launcher (.cjs); NSSM solo como futuro opcional;
+  PM2/.exe descartados.
+- Riesgos principales: puerto ocupado, red Publica, IP dinamica, AP
+  isolation, doble apertura del launcher; todos con mitigacion
+  documentada.
+- Reversion total posible con 3 comandos y 6 pasos (apartado 16).
+
+DETENIDO. No se implemento nada. Esperando instrucciones.

@@ -5,30 +5,6 @@ function generarToken(id) {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "8h" });
 }
 
-export async function registrarUsuario(req, res) {
-  try {
-    const { nombre, usuario, password, rol } = req.body;
-
-    const existe = await User.findOne({ usuario });
-    if (existe) {
-      return res.status(400).json({ mensaje: "El usuario ya existe." });
-    }
-
-    const user = new User({ nombre, usuario, password, rol });
-    await user.save();
-
-    const token = generarToken(user._id);
-
-    res.status(201).json({
-      mensaje: "Usuario registrado correctamente.",
-      token,
-      usuario: user,
-    });
-  } catch (error) {
-    res.status(500).json({ mensaje: "Error al registrar usuario.", error: error.message });
-  }
-}
-
 export async function login(req, res) {
   try {
     const { usuario, password } = req.body;
@@ -51,7 +27,7 @@ export async function login(req, res) {
       usuario: user,
     });
   } catch (error) {
-    res.status(500).json({ mensaje: "Error al iniciar sesión.", error: error.message });
+    res.status(500).json({ mensaje: "Error interno del servidor." });
   }
 }
 

@@ -7,7 +7,7 @@ export async function getVentas(req, res) {
   } catch (error) {
     res
       .status(500)
-      .json({ mensaje: "Error al obtener ventas.", error: error.message });
+      .json({ mensaje: "Error interno del servidor." });
   }
 }
 
@@ -17,7 +17,9 @@ export async function getVentaById(req, res) {
     res.json(venta);
   } catch (error) {
     const status = error.message === "Venta no encontrada." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -36,7 +38,7 @@ export async function createVenta(req, res) {
     }
     res
       .status(500)
-      .json({ mensaje: "Error al crear venta.", error: error.message });
+      .json({ mensaje: "Error interno del servidor." });
   }
 }
 
@@ -54,7 +56,9 @@ export async function updateVenta(req, res) {
         .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     const status = error.message === "Venta no encontrada." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -69,7 +73,9 @@ export async function confirmarVenta(req, res) {
         .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     const status = error.message === "Venta no encontrada." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -84,7 +90,9 @@ export async function anularVenta(req, res) {
         .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     const status = error.message === "Venta no encontrada." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -93,10 +101,7 @@ export async function getEstadisticasVentas(req, res) {
     const estadisticas = await ventaService.obtenerEstadisticas(req.query);
     res.json(estadisticas);
   } catch (error) {
-    res.status(500).json({
-      mensaje: "Error al obtener estadísticas de ventas.",
-      error: error.message,
-    });
+    res.status(500).json({ mensaje: "Error interno del servidor." });
   }
 }
 
@@ -107,10 +112,7 @@ export async function getProductosMasVendidos(req, res) {
     );
     res.json({ productos });
   } catch (error) {
-    res.status(500).json({
-      mensaje: "Error al obtener productos más vendidos.",
-      error: error.message,
-    });
+    res.status(500).json({ mensaje: "Error interno del servidor." });
   }
 }
 
@@ -119,9 +121,6 @@ export async function getSerieVentas(req, res) {
     const data = await ventaService.obtenerSerieDiaria(req.query);
     res.json(data);
   } catch (error) {
-    res.status(500).json({
-      mensaje: "Error al obtener la serie de ventas.",
-      error: error.message,
-    });
+    res.status(500).json({ mensaje: "Error interno del servidor." });
   }
 }

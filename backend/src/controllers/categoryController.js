@@ -19,7 +19,9 @@ export async function getCategoryById(req, res) {
     res.json(categoria);
   } catch (error) {
     const status = error.message === "Categoría no encontrada." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -44,7 +46,9 @@ export async function updateCategory(req, res) {
       return res.status(400).json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     const status = error.message === "Categoría no encontrada." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -54,10 +58,12 @@ export async function deleteCategory(req, res) {
     res.json({ mensaje: "Categoría eliminada correctamente." });
   } catch (error) {
     if (error.errores) {
-      return res.status(400).json({ mensaje: error.message, errores: error.errores });
+      return res.status(error.status || 400).json({ mensaje: error.message, errores: error.errores });
     }
     const status = error.message === "Categoría no encontrada." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 

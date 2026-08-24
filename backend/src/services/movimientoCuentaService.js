@@ -161,6 +161,8 @@ export async function anularPorVenta({
 
   validarClienteId(clienteId);
 
+  const saldoAntes = await obtenerSaldoCliente(clienteId);
+
   const resultado = await MovimientoCuenta.updateMany(
     {
       venta: ventaId,
@@ -175,8 +177,7 @@ export async function anularPorVenta({
     session ? { session } : undefined,
   );
 
-  const saldoActual = await obtenerSaldoCliente(clienteId);
-  const exceso = Math.max(0, Number(montoVenta || 0) - saldoActual);
+  const exceso = Math.max(0, Number(montoVenta || 0) - saldoAntes);
 
   if (exceso > 0) {
     const movimiento = new MovimientoCuenta({

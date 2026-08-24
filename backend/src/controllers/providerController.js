@@ -19,7 +19,9 @@ export async function getProviderById(req, res) {
     res.json(proveedor);
   } catch (error) {
     const status = error.message === "Proveedor no encontrado." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -48,7 +50,9 @@ export async function updateProvider(req, res) {
         .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     const status = error.message === "Proveedor no encontrado." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -59,11 +63,13 @@ export async function deleteProvider(req, res) {
   } catch (error) {
     if (error.errores) {
       return res
-        .status(400)
+        .status(error.status || 400)
         .json({ mensaje: error.message, errores: error.errores });
     }
     const status = error.message === "Proveedor no encontrado." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 

@@ -122,7 +122,7 @@ function Dashboard() {
 
   return (
     <div>
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
         <div>
           <h3 className="fw-bold mb-1">Dashboard</h3>
           <p className="text-muted small mb-0">Resumen general del negocio</p>
@@ -147,7 +147,7 @@ function Dashboard() {
                   </div>
                   <div>
                     <p className="text-muted small mb-0">{card.label}</p>
-                    <h4 className="fw-bold mb-0">{card.value}</h4>
+                    <h4 className="fw-bold mb-0 stat-value">{card.value}</h4>
                   </div>
                 </div>
               </div>

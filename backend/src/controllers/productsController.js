@@ -7,7 +7,7 @@ export async function getProducts(req, res) {
   } catch (error) {
     res
       .status(500)
-      .json({ mensaje: "Error al obtener productos.", error: error.message });
+      .json({ mensaje: "Error interno del servidor." });
   }
 }
 
@@ -17,7 +17,9 @@ export async function getProductById(req, res) {
     res.json(producto);
   } catch (error) {
     const status = error.message === "Producto no encontrado." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -33,7 +35,7 @@ export async function createProduct(req, res) {
     }
     res
       .status(500)
-      .json({ mensaje: "Error al crear producto.", error: error.message });
+      .json({ mensaje: "Error interno del servidor." });
   }
 }
 
@@ -48,7 +50,9 @@ export async function updateProduct(req, res) {
         .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     const status = error.message === "Producto no encontrado." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -57,8 +61,15 @@ export async function deleteProduct(req, res) {
     await productService.eliminar(req.params.id);
     res.json({ mensaje: "Producto eliminado correctamente." });
   } catch (error) {
+    if (error.errores) {
+      return res
+        .status(error.status || 400)
+        .json({ mensaje: error.message, errores: error.errores });
+    }
     const status = error.message === "Producto no encontrado." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -69,9 +80,6 @@ export async function getProductStats(req, res) {
   } catch (error) {
     res
       .status(500)
-      .json({
-        mensaje: "Error al obtener estadísticas.",
-        error: error.message,
-      });
+      .json({ mensaje: "Error interno del servidor." });
   }
 }

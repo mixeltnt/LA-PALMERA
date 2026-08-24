@@ -1,0 +1,295 @@
+================================================================================
+LA-PALMERA — ADAPTACIÓN RESPONSIVE MÓVIL
+Auditoría, diagnóstico, cambios implementados e informe final
+Fecha: 14/08/2026
+================================================================================
+
+--------------------------------------------------------------------------------
+1. PROYECTO
+--------------------------------------------------------------------------------
+- Nombre: LA-PALMERA (Sistema de Gestión para Minimarket)
+- Frontend: React 19 + Vite 8 + Bootstrap 5.3.8 + Bootstrap Icons + React Router 7
+- Backend: Node.js/Express
+- Base de datos: MongoDB (NO modificada)
+- Alcance del trabajo: solo interfaz responsive para teléfonos Android.
+  NO se modificó: lógica de negocio, MongoDB, endpoints, autenticación,
+  cálculos de ventas/compras/stock/fiado/cuentas por cobrar/reportes/dashboard,
+  ni el ticket 80mm (TicketVenta.jsx / TicketVenta.css intactos).
+
+--------------------------------------------------------------------------------
+2. AUDITORÍA — ESTRUCTURA DEL FRONTEND
+--------------------------------------------------------------------------------
+- src/main.jsx          -> Bootstrap CSS importado correctamente + index.css
+- src/index.html        -> viewport meta presente
+- src/layouts/MainLayout.jsx  -> Layout principal (sidebar + navbar + main)
+- src/components/Sidebar.jsx  -> Sidebar fijo 240px (escritorio) / drawer (móvil)
+- src/components/Navbar.jsx   -> Header con toggle de sidebar, usuario y logout
+- src/components/ProtectedRoute.jsx, contexts/AuthContext.jsx, services/* -> NO tocados
+- src/components/Ventas/TicketVenta.jsx/.css -> NO tocados (formato 80mm intacto)
+- Páginas:
+  - Dashboard (Dashboard.jsx)
+  - Inventario (Inventario.jsx)
+  - Productos (Productos.jsx)
+  - Categorías (Categorias.jsx)
+  - Ventas / POS (Ventas.jsx)
+  - Historial de Ventas (HistorialVentas.jsx)
+  - Compras (Compras.jsx)
+  - Clientes (Clientes.jsx)
+  - Proveedores (Proveedores.jsx)
+  - Usuarios (Usuarios.jsx - placeholder)
+  - Reportes (Reportes.jsx)
+  - Configuración (Configuracion.jsx - placeholder)
+  - Login (Login.jsx)
+  - Caja (Caja.jsx - no enrutada, placeholder)
+
+--------------------------------------------------------------------------------
+3. DIAGNÓSTICO — PROBLEMAS RESPONSIVE ENCONTRADOS
+--------------------------------------------------------------------------------
+[1] CRÍTICO - Login.jsx
+    Card con width fijo 420px -> desborda la pantalla en 360px.
+    Padding p-5 excesivo en móvil.
+
+[2] MainLayout.jsx
+    Drawer del sidebar sin animación, no se cerraba al navegar ni con
+    tecla Escape. Main con p-4 demasiado ancho en móvil.
+
+[3] Sidebar.jsx
+    No propagaba evento de cierre a los NavLinks (requisito: cerrar al
+    seleccionar una opción en móvil).
+
+[4] Navbar.jsx
+    Botones toggle y logout con btn-sm (~31px), demasiado pequeños para
+    interacción táctil.
+
+[5] Ventas.jsx (POS) - LA PARTE MÁS IMPORTANTE
+    - Carrito con input-group-sm: botones +/- de ~31px, inutilizables con
+      el dedo.
+    - Botones de montos rápidos (Exacto, +$5.000, etc.) en btn-sm.
+    - Modal de cobro sin modal-dialog-scrollable: se cortaba en orientación
+      landscape.
+    - Botón "Cobrar" quedaba al final de la página: en celular había que
+      hacer scroll por todo el listado de productos para cobrar.
+
+[6] Productos.jsx
+    Header sin flex-wrap (botón "Nuevo Producto" apretaba el título en
+    360px). Paginación con muchos números desbordaba la fila.
+    Botones editar/eliminar de ~31px.
+
+[7] Clientes.jsx
+    Mismo problema de header, paginación y botones de acción (editar,
+    ver cuenta, eliminar).
+
+[8] Compras.jsx
+    Modal modal-xl con líneas de producto en form-select-sm/form-control-sm
+    (~31px). Botón "Agregar producto" en btn-sm. Footer del modal con 3
+    botones que se comprimían en 360px. Modal de detalle sin scrollable y
+    tabla de detalle sin table-responsive.
+
+[9] HistorialVentas.jsx
+    Paginación desbordaba; botones ver detalle/anular pequeños.
+
+[10] Categorias.jsx / Proveedores.jsx
+    Header, paginación y botones de acción pequeños.
+
+[11] Dashboard.jsx
+    Header con badge de fecha podía desbordar en 360px; montos en h4 justos
+    en pantalla angosta.
+
+[12] index.css
+    Sin overflow-x hidden global (riesgo de scroll horizontal de toda la
+    app). Sin reglas táctiles para pantallas pointer:coarse.
+
+[13] index.html
+    Sin theme-color ni metas móviles (preparación PWA).
+
+[OK - sin cambios] Inventario (header flex-wrap, tabla scrollable),
+    Reportes (filtros flex-wrap, tablas scrollable), Usuarios/Configuración/
+    Caja (placeholders), TicketVenta (intacto).
+
+--------------------------------------------------------------------------------
+4. CAMBIOS IMPLEMENTADOS (solo UI responsive)
+--------------------------------------------------------------------------------
+ARCHIVO 1: frontend/src/index.css
+  - html/body con overflow-x: hidden (evita scroll horizontal global;
+    las tablas anchas conservan su scroll interno controlado).
+  - Estilos del drawer del sidebar: .sidebar-backdrop y .sidebar-drawer
+    (position fixed, ancho 240px, max-width 85vw) con animación
+    @keyframes sidebar-slide-in.
+  - Accesibilidad táctil @media (pointer: coarse):
+      .btn-sm  -> min-height 42px
+      .btn-icon-> min-width/min-height 42px (botones de acción de tablas)
+      .page-link -> min-width/min-height 40px (paginación)
+  - Modales en <576px: margen reducido, .modal-footer con flex-wrap y
+    botones flex:1 1 auto (se apilan sin salirse de la pantalla).
+  - POS: .pos-sticky-footer (z-index 1030) y padding-bottom de la página
+    en <992px para que la barra fija no tape el contenido.
+  - .stat-value con font-size clamp(1.15rem, 4vw, 1.5rem) y word-break.
+  - Toasts en móvil (.app-toast): ocupan el ancho útil de la pantalla.
+
+ARCHIVO 2: frontend/src/layouts/MainLayout.jsx
+  - Drawer offcanvas real: backdrop + panel con animación slide-in.
+  - Cierre al tocar el backdrop, con tecla Escape (useEffect keydown) y
+    al navegar (onClose propagado al Sidebar).
+  - Escritorio sin cambios: sidebar fijo d-none d-lg-block.
+  - main con padding p-2 p-md-4.
+
+ARCHIVO 3: frontend/src/components/Sidebar.jsx
+  - Nueva prop onClose: cada NavLink ejecuta onClick={onClose} (cierra el
+    drawer al seleccionar en móvil; en escritorio no tiene efecto).
+  - Botón ✕ (btn-close-white d-lg-none) en el header para cerrar en móvil.
+  - Altura restaurada a 100vh para no alterar el comportamiento de
+    escritorio.
+
+ARCHIVO 4: frontend/src/components/Navbar.jsx
+  - Toggle y botón logout con min-width/min-height 44px (táctiles).
+  - Padding px-3 px-md-4, brand compacto en móvil.
+
+ARCHIVO 5: frontend/src/pages/Login/Login.jsx
+  - FIX BUG: card width:420 -> w-100 + maxWidth 420.
+  - card-body p-4 p-md-5; contenedor con p-3 (funciona en 360px y
+    landscape).
+
+ARCHIVO 6: frontend/src/pages/Ventas/Ventas.jsx (POS)
+  - Barra inferior fija SOLO en móvil (d-lg-none): Total + botón "Cobrar"
+    siempre visibles (pos-sticky-footer). El botón "Cobrar" de la card
+    queda solo en escritorio (d-none d-lg-block). Sin cambios de lógica:
+    reutiliza total, formatPrice, abrirCobro y saving existentes.
+  - Carrito: input-group-sm eliminado (botones +/- de tamaño estándar).
+  - Botones de montos rápidos sin btn-sm.
+  - Modal de cobro con modal-dialog-scrollable (funciona en landscape).
+  - Div raíz con clase pos-page (padding-bottom en móvil).
+
+ARCHIVO 7: frontend/src/pages/Productos/Productos.jsx
+  - Header con flex-wrap + gap-2.
+  - Paginación con flex-wrap + gap-2.
+  - Botones editar/eliminar con clase táctil btn-icon.
+
+ARCHIVO 8: frontend/src/pages/Clientes/Clientes.jsx
+  - Header con flex-wrap + gap-2.
+  - Paginación con flex-wrap + gap-2.
+  - Botones editar / ver cuenta / eliminar con btn-icon.
+  - Toast con clase app-toast.
+
+ARCHIVO 9: frontend/src/pages/Compras/Compras.jsx
+  - Header y paginación con flex-wrap + gap-2.
+  - Botón "Agregar producto" a tamaño estándar.
+  - Líneas del modal sin -sm (selects e inputs táctiles).
+  - Modal de detalle con modal-dialog-scrollable y tabla con
+    table-responsive.
+  - Toast con clase app-toast.
+
+ARCHIVO 10: frontend/src/pages/Ventas/HistorialVentas.jsx
+  - Paginación con flex-wrap + gap-2.
+  - Botones ver detalle / anular con btn-icon.
+  - Toast con clase app-toast.
+
+ARCHIVO 11: frontend/src/pages/Categorias/Categorias.jsx
+  - Header y paginación con flex-wrap + gap-2.
+  - Botones editar/eliminar con btn-icon.
+  - Toast con clase app-toast.
+
+ARCHIVO 12: frontend/src/pages/Proveedores/Proveedores.jsx
+  - Header y paginación con flex-wrap + gap-2.
+  - Botones editar/eliminar con btn-icon.
+  - Toast con clase app-toast.
+
+ARCHIVO 13: frontend/src/pages/Dashboard/Dashboard.jsx
+  - Header con flex-wrap + gap-2 (el badge de fecha no desborda).
+  - Valores de tarjetas con clase stat-value (clamp: sin textos cortados).
+
+ARCHIVO 14: frontend/index.html
+  - viewport con viewport-fit=cover.
+  - meta theme-color (#198754), mobile-web-app-capable,
+    apple-mobile-web-app-capable/status-bar-style/title (preparación PWA).
+
+--------------------------------------------------------------------------------
+5. PANTALLAS ADAPTADAS
+--------------------------------------------------------------------------------
+- Login (fix crítico de ancho)
+- Layout completo: sidebar drawer offcanvas + navbar táctil
+- Dashboard (tarjetas apiladas, sin scroll horizontal, textos sin cortar)
+- Ventas / POS (búsqueda, selección, cantidades, carrito, cliente, método
+  de pago, FIADO, descuentos, total, confirmar venta y ticket: sin cambios
+  de reglas; controles táctiles y barra fija de cobro)
+- Historial de Ventas (columnas intactas, scroll horizontal controlado)
+- Productos (tabla con scroll horizontal controlado en 360px)
+- Inventario (ya era usable; sin cambios)
+- Categorías
+- Compras (proveedor, productos, cantidades, precios, total, confirmación)
+- Clientes (listado, búsqueda, creación/edición, cuenta corriente, cuentas
+  por cobrar, abonos, modales)
+- Proveedores
+- Reportes (tablas, filtros, tarjetas: ya era usable; sin cambios)
+- Usuarios / Configuración / Caja (placeholders)
+
+--------------------------------------------------------------------------------
+6. RESULTADO DE npm run build
+--------------------------------------------------------------------------------
+Ejecutado en frontend/ -> EXITOSO, sin errores.
+
+  vite v8.1.3 building client environment for production...
+  54 modules transformed.
+  dist/index.html                               1.08 kB
+  dist/assets/bootstrap-icons-*.woff2          134.04 kB
+  dist/assets/bootstrap-icons-*.woff           180.28 kB
+  dist/assets/index-*.css                      313.37 kB (gzip 45.86 kB)
+  dist/assets/index-*.js                       387.54 kB (gzip 100.64 kB)
+  ✓ built (aprox. 1s)
+
+Nota: se ejecutó npm run lint. Reporta 24 errores, TODOS PREEXISTENTES
+(patrón setState dentro de useEffect, catch vacíos, variables sin usar en
+services/api.js y AuthContext.jsx). No fueron modificados por estar fuera
+del alcance responsive.
+
+--------------------------------------------------------------------------------
+7. RESULTADO DE git status / git diff --stat
+--------------------------------------------------------------------------------
+14 archivos modificados: 216 inserciones, 70 eliminaciones.
+NO se realizó commit ni push (según instrucciones).
+
+  M frontend/index.html
+  M frontend/src/components/Navbar.jsx
+  M frontend/src/components/Sidebar.jsx
+  M frontend/src/index.css
+  M frontend/src/layouts/MainLayout.jsx
+  M frontend/src/pages/Categorias/Categorias.jsx
+  M frontend/src/pages/Clientes/Clientes.jsx
+  M frontend/src/pages/Compras/Compras.jsx
+  M frontend/src/pages/Dashboard/Dashboard.jsx
+  M frontend/src/pages/Login/Login.jsx
+  M frontend/src/pages/Productos/Productos.jsx
+  M frontend/src/pages/Proveedores/Proveedores.jsx
+  M frontend/src/pages/Ventas/HistorialVentas.jsx
+  M frontend/src/pages/Ventas/Ventas.jsx
+
+--------------------------------------------------------------------------------
+8. RIESGOS O PROBLEMAS PENDIENTES
+--------------------------------------------------------------------------------
+1. Lint: 24 errores preexistentes (react-hooks/set-state-in-effect,
+   no-empty, no-unused-vars, react-refresh/only-export-components).
+   Recomendación: revisarlos en una iteración aparte.
+
+2. Prueba real recomendada: verificar en celular físico o emulación de
+   Chrome DevTools (360px, 390px, 412px, 768px y landscape):
+   - POS completo: búsqueda, carrito, FIADO, descuento, cobro efectivo,
+     nueva barra fija "Cobrar" y flujo del ticket.
+   - Drawer del sidebar (abrir/cerrar, seleccionar opción, Escape).
+   - Modales de Clientes (cuenta corriente/abonos) y Compras.
+
+3. Fase PWA pendiente (siguiente paso, NO incluida en este trabajo):
+   - manifest.json (name, icons 192x512, theme_color, display standalone).
+   - Service worker (registro + caché offline básico).
+   - Íconos PWA en /public.
+   - Ya quedaron los meta tags base en index.html.
+
+4. TicketVenta.jsx / TicketVenta.css NO se modificaron; el formato 80mm y
+   la impresión vía window.print() se mantienen intactos. Si en un celular
+   el botón de imprimir fallara, evaluar solo el disparador de impresión
+   (no el formato).
+
+5. Backend, servicios API, modelos, controladores, rutas y MongoDB:
+   intactos. Sin cambios de lógica de negocio.
+
+================================================================================
+FIN DEL INFORME
+================================================================================

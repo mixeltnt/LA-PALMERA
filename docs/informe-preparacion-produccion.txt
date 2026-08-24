@@ -1,0 +1,311 @@
+INFORME DE PREPARACION PARA PRODUCCION Y DESPLIEGUE - LA PALMERA
+===============================================================
+Fecha: 15 de agosto de 2026
+Tipo: auditoria de preparacion (SOLO LECTURA). No se modifico ningun
+archivo, no se toco MongoDB, usuarios ni .env. Sin commit, sin push.
+
+========================================================================
+1. ESTADO ACTUAL
+========================================================================
+- Frontend: React 19 + Vite 8 + react-router-dom 7 + Bootstrap 5.3 +
+  bootstrap-icons. PWA con manifest y service worker propios.
+- Backend: Node/Express 5 (ESM) + Mongoose 9 + JWT + bcryptjs +
+  express-rate-limit (login) + dotenv. Endpoints /api/*.
+- Base de datos: MongoDB local (mongodb://localhost:27017/lapalmera).
+- Ejecucion actual: SOLO desarrollo local (npm run dev en VSCode):
+  * backend: nodemon src/server.js en puerto 4000 (PORT del .env).
+  * frontend: vite en 5173 con proxy /api -> http://localhost:4000
+    (vite.config.js).
+- Scripts existentes:
+  * backend: "start": node ./src/server.js (listo para produccion),
+    "dev": nodemon, "seed:usuarios": scripts/seedUsers.js.
+  * frontend: "build": vite build (genera dist/), "preview", "lint".
+- Variables de entorno actuales (backend/.env, local, gitignored):
+  PORT, MONGODB_URI, JWT_SECRET, YASNA_PASSWORD, KARLA_PASSWORD,
+  VENDEDOR_PASSWORD. (Valores no revelados.)
+- .gitignore: backend/.gitignore (node_modules, .env, logs) y
+  frontend/.gitignore (node_modules, dist, logs). No existe .gitignore
+  en la raiz del repo.
+
+========================================================================
+2. QUE ESTA LISTO PARA PRODUCCION
+========================================================================
+- Backend "npm start" funciona sin nodemon (node ./src/server.js).
+- app.listen(PORT) escucha en todas las interfaces de red (sin host fijo).
+- JWT_SECRET obligatorio al arrancar (server.js valida y aborta con
+  "JWT_SECRET no esta configurado"); no hay secretos hardcodeados.
+- CORS configurable: lista localhost:5173/5174 para desarrollo +
+  variable CORS_ORIGINS (lista separada por comas) para produccion;
+  requests sin Origin (Tauri/Android nativos) permitidos.
+- Rate limiting en login (express-rate-limit, configurable por env).
+- Errores internos sin fuga de detalles (mensaje generico) y logs sin
+  credenciales (correcciones B.2.3).
+- Autorizacion de ventas por rol/propiedad (B.2.2) e integridad de
+  eliminaciones (B.2.4).
+- PWA lista: manifest completo con iconos 192/512/maskable, favicon,
+  service worker que NO cachea /api, network-first para navegacion,
+  cache-first para assets hasheados. Requiere HTTPS (estandar en todas
+  las plataformas cloud) - listo para ello.
+- Frontend build: PASS (55 modulos, dist/ generado sin errores).
+- Dependencias correctamente separadas: backend prod deps (bcryptjs,
+  cors, dotenv, express, express-rate-limit, jsonwebtoken, mongoose)
+  vs dev (nodemon); frontend prod (react, react-dom, react-router-dom,
+  bootstrap, bootstrap-icons) vs dev (vite, eslint, plugins).
+- "start": script estandar presente en backend (lo que las plataformas
+  esperan por defecto).
+
+========================================================================
+3. QUE FALTA (cambios eventuales necesarios)
+========================================================================
+3.1 Frontend: URL de API configurable (CAMBIOS DE CODIGO NECESARIOS)
+- api.js usa API_URL = "/api" fijo (ruta relativa). En desarrollo el
+  proxy de Vite lo resuelve; en produccion, si frontend y backend estan
+  en dominios distintos, las peticiones fallaran.
+- Cambio minimo futuro (NO aplicado en esta auditoria):
+  * api.js: const API_URL = import.meta.env.VITE_API_URL || "/api";
+  * Crear frontend/.env.production con VITE_API_URL=https://<dominio-api>/api
+    (sin valores reales hasta tener dominio; no se commitearia si se
+    agrega al .gitignore, o se documenta en el panel de la plataforma).
+- Alternativa sin cambios: servir frontend y backend en el MISMO dominio
+  (proxy/reverse) para mantener la ruta relativa. Mas complejo en
+  hosting estatico; con Railway se puede hacer con un solo servicio.
+3.2 Backend: variables de entorno en la plataforma (sin cambiar codigo)
+- MONGODB_URI -> cadena de MongoDB Atlas (incluye usuario/password del
+  cluster Atlas).
+- JWT_SECRET -> secreto FUERTE generado (la plataforma/gestor de
+  secretos); el actual del .env local es debil y NO debe reutilizarse
+  en produccion. OJO: rotar JWT_SECRET invalida las sesiones activas
+  (aceptable al migrar).
+- CORS_ORIGINS -> https://<dominio-frontend> (y localhost si se desea).
+- PORT -> lo asigna la plataforma automaticamente (server.js ya usa
+  process.env.PORT || 4000).
+- YASNA_PASSWORD/KARLA_PASSWORD/VENDEDOR_PASSWORD -> contraseñas
+  FUERTES nuevas para produccion, usadas UNA sola vez por el seed.
+3.3 Creacion de usuarios en produccion
+- Ejecutar una vez: npm run seed:usuarios (backend) con las env vars
+  de contraseñas configuradas -> crea yasna (admin), karla (encargada)
+  y vendedor. No crea admin/1234 (eliminado en B.2.1).
+- Alternativa: crearlos desde la interfaz de Usuarios tras un primer
+  login... (no es posible sin un usuario; el seed es el mecanismo).
+3.4 Seguridad opcional recomendada (fuera de fases anteriores)
+- helmet (headers de seguridad) - NO instalado.
+- Rate limiting general (no solo login) si se expone a Internet.
+- Logs de acceso/errores persistentes (p. ej. pino/morgan o logs de la
+  plataforma) para diagnostico.
+- Backups programados de MongoDB Atlas (nativos o externos).
+- Politica de contraseñas / rotacion periodica.
+3.5 PWA en produccion
+- El service worker se registra solo con import.meta.env.PROD (correcto).
+- Verificar tras el deploy que las rutas absolutas (/, /login) funcionen
+  en el dominio elegido y que HTTPS este activo (requisito de SW).
+- El cache del SW se invalida automaticamente al cambiar el build
+  (CACHE_NAME por version de build).
+
+========================================================================
+4. RIESGOS
+========================================================================
+- Spin-down en planes gratuitos (Render free duerme tras 15 min de
+  inactividad: el POS tardaria 30-60 s en responder la primera peticion
+  del dia). No apto para negocio en horario comercial -> pagar "always
+  on" o elegir plataforma sin sleep.
+- CORS mal configurado romperia login/ventas entre dominios (mitigado
+  con CORS_ORIGINS correcto; probar en staging antes).
+- JWT_SECRET debil actual: si se reutiliza en produccion, cualquiera
+  podria firmar tokens. DEBE rotarse.
+- LocalStorage/sessionStorage para el token (XSS): aceptable para este
+  alcance; mitigacion futura (httpOnly cookies) requeriria cambios
+  grandes de auth (fuera de estas fases).
+- Rate limit en memoria (por instancia): si se escalara a multiples
+  instancias habria que centralizarlo; con 1 instancia es suficiente.
+- Fecha/hora: los reportes usan fecha local del servidor; definir zona
+  horaria de la instancia (America/Santiago) en la plataforma.
+- Sin helmet: cabeceras de seguridad basicas ausentes (X-Frame-Options,
+  CSP, etc.) - riesgo bajo-medio para un sistema interno.
+- El 404 de rutas SPA: el hosting estatico debe reescribir todas las
+  rutas a index.html (Vercel/Netlify/Railway lo hacen con config;
+  NGINX con try_files). Sin esto, /ventas recargada daria 404.
+- Dependencias con avisos de audit (documentados en B.1/B.2.3):
+  backend 1 HIGH dev-only (brace-expansion via nodemon), frontend 5 HIGH
+  (react-router-dom 7.18.1 CSRF modo RSC - no explotable con
+  BrowserRouter actual, postcss, nanoid, brace-expansion via vite).
+  Recomendacion: actualizar react-router-dom a >= 7.18.2 antes de ir a
+  produccion.
+
+========================================================================
+5. PLATAFORMA RECOMENDADA - COMPARACION
+========================================================================
+Criterios: simplicidad, estabilidad, costo y mantenimiento para un
+pequeno negocio (1 instancia backend + frontend estatico + Mongo Atlas).
+
+a) Vercel (frontend) + Render (backend):
+   + Vercel: deploy estatico ultra simple, HTTPS automatico, gratis.
+   - Render free duerme (inaceptable para POS en horario comercial);
+     backend "always on" desde ~USD 7/mes. Dos cuentas/paneles que
+     administrar. CORS entre dominios (configurar CORS_ORIGINS).
+b) Netlify (frontend) + Render (backend):
+   + Similar a Vercel; Netlify gratis con bandwidth generoso.
+   - Misma limitacion de Render (sleep en free). Dos paneles. CORS.
+c) Railway (frontend + backend en un solo panel):
+   + Todo en uno: 1 servicio backend Node (npm start, HTTPS automatico,
+     dominio propio) + 1 servicio frontend estatico (dist/).
+   + Sin sleep en planes pagos basicos (aprox. USD 5/mes base, sin
+     contar uso; escala de gasto predecible para 1 instancia).
+   + Reescribir rutas SPA en 1 linea de config (SPA fallback).
+   + Proxy de /api posible si se quiere mantener ruta relativa.
+   - Menos "gratis" que Vercel/Netlify puros; dominio custom incluido.
+d) VPS (Hetzner/Contabo/Oracle free):
+   + Control total, costo bajo (USD 4-7/mes) o gratis (Oracle ARM).
+   - Requiere mantenimiento continuo: NGINX, certificados HTTPS
+     (certbot), systemd/PM2, firewall, updates, backups manuales.
+   - Riesgo alto para un negocio sin personal tecnico; cualquier caida
+     del servidor o error de config deriva en soporte costoso.
+
+RECOMENDACION: RAILWAY (backend) + RAILWAY (frontend estatico) + MongoDB
+Atlas (M0 free), como opcion principal por simplicidad total, sin sleep,
+HTTPS automatico, un solo panel y mantenimiento minimo (aprox. USD 5/mes
++ 0 del Atlas M0). Alternativa mas barata si se acepta administrar dos
+paneles: Vercel (frontend gratis) + Render backend USD 7/mes. VPS queda
+descartado como primera opcion por el mantenimiento que exige.
+
+========================================================================
+6. ARQUITECTURA PROPUESTA
+========================================================================
+[Usuario/navegador o PWA instalada]
+        | HTTPS
+        v
+Dominio principal (p. ej. lapalmera.cl) -> frontend estatico (dist/)
+        | /api via proxy de la plataforma o dominio separado api.lapalmera.cl
+        v
+Railway Service "backend" -> node ./src/server.js (npm start)
+        | mongoose (MONGODB_URI)
+        v
+MongoDB Atlas (cluster M0 free, base "lapalmera")
+
+Flujo de login: POST https://<api>/api/auth/login -> JWT firmado con
+JWT_SECRET de produccion -> frontend guarda token (storage local) ->
+llamadas /api/* con Authorization: Bearer.
+
+Flujo Android futuro: la APK usara directamente https://<api>/api/*
+(CORS no aplica a apps nativas: los requests sin Origin ya estan
+permitidos por el CORS actual - listo desde B.2.3).
+
+========================================================================
+7. PASOS PARA REALIZAR EL DEPLOYMENT (cuando el usuario lo autorice)
+========================================================================
+1. Crear cluster MongoDB Atlas M0 y obtener la cadena de conexion
+   (usuario/password del cluster). Migrar los datos actuales: exportar
+   las colecciones de la base local (mongodump o script) e importar en
+   Atlas (esta migracion SI modifica la base destino - requiere
+   autorizacion explicita; la base local queda intacta).
+2. Generar JWT_SECRET fuerte (p. ej. openssl rand -base64 48) y definir
+   las nuevas contrasenas de produccion (no mostrar en informes).
+3. Crear cuenta en Railway; conectar el repositorio.
+4. Railway Service A - backend:
+   - Root directory: backend; Build: npm install (solo prod) o
+     npm ci; Start: npm start.
+   - Env vars: MONGODB_URI, JWT_SECRET, CORS_ORIGINS,
+     YASNA_PASSWORD, KARLA_PASSWORD, VENDEDOR_PASSWORD (solo para el
+     seed; luego pueden retirarse).
+   - Generar dominio propio (https://backend-lapalmera.up.railway.app
+     o custom api.lapalmera.cl).
+5. Railway Service B - frontend:
+   - Root directory: frontend; Build: npm install && npm run build;
+   - Salida estatica: dist/; activar SPA fallback (rewrites a /);
+   - Env var (si se cambia api.js): VITE_API_URL=https://<api>/api en
+     build; o dejar ruta relativa "/api" y configurar proxy de /api
+     hacia el servicio backend en el mismo dominio.
+6. Ejecutar una vez el seed: rail run npm run seed:usuarios (o ejecutar
+   contra la URL del servicio) -> crea yasna/karla/vendedor en Atlas.
+7. Probar en el dominio real: login de los 3 usuarios, POS completo,
+   venta normal, fiado, reportes, PWA instalable, recarga profunda de
+   /ventas (SPA fallback) y HTTPS.
+8. Verificar que los logs de la plataforma no imprimen secretos
+   (ya garantizado por B.2.3) y que MongoDB no queda expuesto (Atlas
+   por defecto bloquea acceso publico; permitir solo IP de Railway o
+   0.0.0.0 con autenticacion fuerte si la plataforma lo exige).
+9. Definir zona horaria America/Santiago en la instancia backend.
+
+========================================================================
+8. VARIABLES DE ENTORNO NECESARIAS (produccion)
+========================================================================
+Backend (dashboard de Railway/Render):
+- MONGODB_URI     -> cadena Atlas con credenciales del cluster.
+- JWT_SECRET      -> secreto fuerte generado (obligatorio: sin el, el
+                     backend no arranca - validacion B.2.1).
+- CORS_ORIGINS    -> https://<dominio-frontend> (lista separada por
+                     comas si hay mas origenes).
+- PORT            -> asignado automaticamente por la plataforma
+                     (opcional).
+- YASNA_PASSWORD / KARLA_PASSWORD / VENDEDOR_PASSWORD -> contraseñas
+  fuertes de produccion, usadas solo por seed:usuarios (pueden
+  eliminarse despues del primer uso).
+Frontend (solo si se implementa el cambio de api.js):
+- VITE_API_URL    -> https://<dominio-api>/api (build-time).
+
+Ninguna de estas variables debe commitearse (backend/.env ya esta
+gitignored; el frontend no tiene .env propio actualmente).
+
+========================================================================
+9. CONFIGURACION NECESARIA FRONTEND Y BACKEND
+========================================================================
+Frontend:
+- Cambio minimo: api.js con VITE_API_URL (ver punto 3.1) O proxy de
+  /api en la plataforma manteniendo ruta relativa.
+- SPA fallback (rewrites a index.html) para navegacion profunda.
+- HTTPS obligatorio (PWA) - automatico en todas las plataformas.
+Backend:
+- Ningun cambio de codigo obligatorio: ya tiene start, PORT por env,
+  JWT obligatorio, CORS por env, rate limit, sin secretos en logs.
+- Recomendado antes de salir a produccion (autorizacion del usuario):
+  instalar helmet; actualizar react-router-dom >= 7.18.2 (frontend).
+- Zona horaria America/Santiago.
+- Mantener 1 instancia (rate limit en memoria es suficiente).
+
+========================================================================
+10. CAMBIOS DE CODIGO EVENTUALMENTE NECESARIOS (NO APLICADOS)
+========================================================================
+a) frontend/src/services/api.js: sustituir API_URL = "/api" por
+   const API_URL = import.meta.env.VITE_API_URL || "/api";
+b) (Opcional) frontend/.env.production con VITE_API_URL - sin commitear
+   (o documentar en la plataforma).
+c) (Opcional) backend: helmet + rate limit global (dependencia nueva).
+d) (Opcional) actualizar react-router-dom a >= 7.18.2 (5 avisos HIGH
+   del audit frontend quedan resueltos parcialmente).
+e) (Opcional) definir error handler central de Express con log seguro
+   (mejor observabilidad).
+Todo lo demas (CORS, JWT, seed, PWA, errores) ya esta preparado.
+
+========================================================================
+11. ARCHIVOS QUE DEBEN QUEDAR FUERA DEL DEPLOYMENT
+========================================================================
+- node_modules/ (backend y frontend) - gitignored.
+- backend/.env - gitignored; las variables van en el dashboard.
+- dist/ (frontend) - generado por el build en la plataforma; gitignored.
+- docs/ (informes de fases y auditorias) - no se despliegan (opcional
+  excluirlos del deploy).
+- backend/scripts/ (seed) - no se despliega en el servicio web (solo se
+  usa una vez; puede quedar en el repo sin efecto).
+- Archivos temporales de pruebas (fuera del repo).
+- .git - no se despliega (la plataforma hace checkout del repo).
+
+========================================================================
+12. RESUMEN EJECUTIVO
+========================================================================
+- LISTO hoy: backend con start/port/JWT/CORS/rate-limit/errores
+  seguros; PWA; build PASS; separacion de dependencias; .gitignore.
+- FALTA (sin codigo obligatorio): cuenta Atlas + migracion de datos
+  (autorizada), env vars en la plataforma, seed de usuarios, HTTPS
+  (automatico), y decidir el esquema de dominios (/api relativo vs
+  VITE_API_URL).
+- CAMBIO DE CODIGO minimo recomendado: api.js con VITE_API_URL
+  (1 linea) para desacoplar dominios; opcional helmet y actualizar
+  react-router-dom.
+- PLATAFORMA RECOMENDADA: Railway (frontend estatico + backend) +
+  MongoDB Atlas M0. Alternativa: Vercel + Render (con backend pago
+  "always on"). VPS descartado por mantenimiento.
+- RIESGOS PRINCIPALES: spin-down de planes gratis, JWT_SECRET debil
+  actual (rotar), CORS entre dominios, 404 de rutas SPA sin fallback,
+  zona horaria.
+- NADA fue modificado: solo lectura. Sin commit, sin push.
+
+Detenido, esperando instrucciones.

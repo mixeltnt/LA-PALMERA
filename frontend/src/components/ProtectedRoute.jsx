@@ -1,11 +1,16 @@
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
-function ProtectedRoute() {
-  const { isAuthenticated } = useAuth();
+function ProtectedRoute({ roles }) {
+  const { isAuthenticated, user } = useAuth();
+  const location = useLocation();
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (roles && !roles.includes(user?.rol)) {
+    return <Navigate to="/ventas" replace state={{ from: location }} />;
   }
 
   return <Outlet />;

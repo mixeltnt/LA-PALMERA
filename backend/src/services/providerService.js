@@ -1,5 +1,6 @@
 import Provider from "../models/providerModel.js";
 import Product from "../models/productModel.js";
+import Compra from "../models/compraModel.js";
 
 function validar(data) {
   const errores = [];
@@ -198,17 +199,19 @@ export async function eliminar(id) {
   const proveedor = await Provider.findById(id);
   if (!proveedor) throw new Error("Proveedor no encontrado.");
 
-  const productosAsociados = await Product.countDocuments({
-    proveedorPrincipal: id,
-  });
-  if (productosAsociados > 0) {
+  const [productosAsociados, comprasAsociadas] = await Promise.all([
+    Product.countDocuments({ proveedorPrincipal: id }),
+    Compra.countDocuments({ proveedor: id }),
+  ]);
+
+  if (productosAsociados > 0 || comprasAsociadas > 0) {
     const err = new Error(
-      `No se puede eliminar el proveedor porque tiene ${productosAsociados} producto(s) asociado(s).`,
+      "No se puede eliminar el proveedor porque tiene registros históricos asociados.",
     );
     err.errores = [
-      `El proveedor "${proveedor.nombre}" tiene ${productosAsociados} producto(s) asociado(s). Desasocia o elimina los productos primero.`,
+      `El proveedor "${proveedor.nombre}" tiene ${productosAsociados} producto(s) y ${comprasAsociadas} compra(s) asociada(s). Desactívalo en lugar de eliminarlo.`,
     ];
-    err.status = 400;
+    err.status = 409;
     throw err;
   }
 

@@ -6,7 +6,11 @@ const userSchema = new mongoose.Schema(
     nombre: { type: String, required: true, trim: true },
     usuario: { type: String, required: true, unique: true, trim: true },
     password: { type: String, required: true },
-    rol: { type: String, enum: ["admin", "vendedor"], default: "vendedor" },
+    rol: {
+      type: String,
+      enum: ["admin", "encargada", "vendedor"],
+      default: "vendedor",
+    },
     activo: { type: Boolean, default: true },
   },
   { timestamps: true }

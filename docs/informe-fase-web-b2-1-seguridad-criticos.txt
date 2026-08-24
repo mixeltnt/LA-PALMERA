@@ -1,0 +1,139 @@
+INFORME FASE WEB B.2.1 - CORRECCION DE LOS 2 RIESGOS CRITICOS DE SEGURIDAD
+==========================================================================
+Fecha: 15 de agosto de 2026
+Base: docs/informe-fase-web-b1-seguridad.txt (riesgos C1 y C2)
+Politica: no se muestran contrasenas, JWT_SECRET, tokens ni MONGODB_URI en
+este informe. No se hizo commit ni push.
+
+1. RIESGO CRITICO 1 (admin/1234 automatico) - RESULTADO: CORREGIDO
+-------------------------------------------------------------------
+- Eliminada la funcion crearAdminSiNoExiste() de backend/src/server.js.
+- Eliminada la llamada automatica en start() (arranque).
+- El backend ya NO crea el usuario admin con credenciales conocidas en ningun
+  escenario (base vacia incluida).
+- En su lugar, si no existe ningun administrador activo, el servidor solo
+  INFORMA (console.warn) que debe crearse mediante el mecanismo seguro de
+  administracion (seed), sin crear nada ni inventar contrasenas.
+- Verificado con arranque real del backend (via nodemon del entorno) tras el
+  cambio: no se creo ningun usuario.
+
+2. RIESGO CRITICO 2 (JWT_SECRET predecible/obligatorio) - RESULTADO: CORREGIDO
+------------------------------------------------------------------------------
+- JWT_SECRET ahora es OBLIGATORIO: validarEntorno() en server.js (lineas 9-14)
+  aborta el arranque con exit code 1 y el mensaje exacto
+  "JWT_SECRET no está configurado" si la variable de entorno no existe.
+- Verificado de forma controlada (DOTENV_CONFIG_PATH apuntando a archivo de
+  entorno vacio): el backend imprimio "JWT_SECRET no está configurado" y salio
+  con codigo 1, sin abrir puerto ni dejar procesos.
+- No existe ningun JWT_SECRET hardcodeado ni fallback en el codigo: grep
+  confirma que el secreto solo se lee via process.env.JWT_SECRET en
+  authController.js:5 (firma) y authMiddleware.js:16 (verificacion).
+- El .env local NO fue modificado ni mostrado; sigue fuera del repositorio
+  (.gitignore linea 2, verificado con git check-ignore). No existe
+  .env.example en el proyecto, por lo que no se creo ni actualizo ninguno
+  (se documenta aqui: si se crea, usar unicamente
+  JWT_SECRET=<configurar-secreto-seguro> sin valor real).
+
+3. ARCHIVOS MODIFICADOS
+-----------------------
+Solo backend/src/server.js.
+
+4. CAMBIOS REALIZADOS
+---------------------
+backend/src/server.js:
+- Eliminado: funcion crearAdminSiNoExiste() y su invocacion en start().
+- Agregado: funcion validarEntorno() que exige JWT_SECRET al arrancar.
+- Agregado: funcion advertirSiNoHayAdmin() que solo informa si no hay admin
+  activo (no crea nada).
+- start() ahora: valida entorno -> conecta BD -> advierte si no hay admin ->
+  escucha.
+
+5. ESTADO DEL ADMIN HISTORICO
+-----------------------------
+- Existia: usuario "admin" (rol admin, activo, creado historico por el codigo
+  eliminado). Se verifico su existencia y rol antes de actuar.
+- Accion: desactivado (activo = false). No fue eliminado fisicamente,
+  conservando trazabilidad.
+- Resultado en base: admin | rol=admin | activo=false.
+
+6. CONFIRMACION DE YASNA COMO ADMIN ACTIVA
+-------------------------------------------
+Precondicion verificada ANTES de desactivar admin (solo lectura):
+yasna | rol=admin | activo=true. OK.
+Estado posterior verificado: yasna intacta (rol admin, activa).
+
+7. RESULTADO LOGIN YASNA -> LOGIN PASS (status 200, rol admin, token emitido)
+8. RESULTADO LOGIN KARLA -> LOGIN PASS (status 200, rol encargada, token emitido)
+9. RESULTADO LOGIN VENDEDOR -> LOGIN PASS (status 200, rol vendedor, token emitido)
+
+(Pruebas via HTTP real contra el backend reiniciado con el nuevo codigo;
+contrasenas leidas del .env sin imprimirse.)
+
+10. RESULTADO TOKEN VALIDO
+--------------------------
+GET /api/auth/profile con token de yasna -> 200, identidad correcta. PASS.
+
+11. RESULTADO TOKEN INVALIDO
+----------------------------
+GET /api/auth/profile con token invalido -> 401. PASS.
+
+12. RESULTADO ADMIN DESACTIVADO
+-------------------------------
+POST /api/auth/login con usuario admin -> 401 (credenciales invalidas; el
+middleware rechaza tambien usuarios inactivos en cada request). PASS.
+
+13. RESULTADO npm run build
+---------------------------
+PASS (55 modulos transformados, JS 403.62 kB / gzip 103.68 kB).
+
+14. CONFIRMACION DE NO MODIFICACIONES FUERA DE ALCANCE
+-------------------------------------------------------
+Conteos verificados en MongoDB (identicos a los previos a la fase):
+- ventas: 42 (incl. 21 fiado, 15 anuladas)
+- detalleventas: 48
+- products: 53
+- clients: 14
+- compras: 3
+- detallecompras: 5
+- movimientocuentas: 29 (incl. 4 REVERSO_ABONO intactos)
+- categories: 16
+- providers: 1
+- secuencias: 1
+- users: 5 (solo cambio: admin activo=false; yasna, karla, vendedor y
+  vendedor1 sin modificaciones; ninguna contrasena tocada)
+No se modificaron ventas, fiado, stock, productos, clientes, compras ni
+movimientos. No se crearon usuarios.
+
+15. git diff
+------------
+Unico archivo con cambio nuevo de esta fase:
+backend/src/server.js (diff completo abajo):
+- Eliminacion de crearAdminSiNoExiste (creaba admin/1234).
+- Agregado validarEntorno() exigiendo JWT_SECRET al arrancar.
+- Agregado advertirSiNoHayAdmin() informativo (sin creacion).
+
+16. git status
+--------------
+Sin archivos nuevos de esta fase (los modificados/untracked listados son los
+de fases anteriores: fix fiado A.2 y trabajo previo). El unico archivo de
+salida de esta fase: docs/informe-fase-web-b2-1-seguridad-criticos.txt.
+Sin commit, sin push.
+
+
+VERIFICACION FINAL
+------------------
+- admin/1234 ya NO se crea automaticamente: CONFIRMADO (codigo eliminado y
+  arranque real sin creacion).
+- admin historico desactivado: CONFIRMADO (activo=false).
+- yasna sigue admin activa: CONFIRMADO.
+- karla sigue encargada: CONFIRMADO.
+- vendedor sigue vendedor: CONFIRMADO.
+- JWT_SECRET ahora obligatorio: CONFIRMADO (fallo de arranque probado con el
+  mensaje exacto).
+- No existe secreto JWT hardcodeado en codigo: CONFIRMADO (grep).
+- Sin modificaciones fuera del alcance: CONFIRMADO (conteos de BD identicos).
+- npm run build: PASS.
+- Procesos: no se dejaron procesos adicionales; las pruebas HTTP usaron el
+  servidor de desarrollo existente del usuario (nodemon, que se reinicio solo
+  con el nuevo codigo); la prueba de fallo de arranque termino sola (exit 1).
+- Sin commit, sin push. Detenido.

@@ -1,0 +1,174 @@
+INFORME FASE WEB B.2.2 - CORRECCION DE AUTORIZACION EN VENTAS
+=============================================================
+Fecha: 15 de agosto de 2026
+Base: informe-fase-web-b1-seguridad.txt (hallazgos A1, A3 y A4 de ventas)
+Politica: no se muestran contrasenas, JWT_SECRET, tokens ni MONGODB_URI.
+Sin commit, sin push.
+
+1. PROBLEMA ENCONTRADO
+----------------------
+- PUT /api/ventas/:id y PATCH /api/ventas/:id/confirmar estaban registrados sin
+  restriccion de rol ni de propiedad (ventaRoutes.js:45-46 en la version
+  auditada): cualquier usuario autenticado podia editar o confirmar una venta
+  cambiando directamente el ID, incluidas ventas de otros usuarios.
+- GET /api/ventas/serie estaba accesible para cualquier usuario autenticado
+  (ventaRoutes.js:41), exponiendo la serie diaria de la caja.
+- El sistema YA posee un mecanismo de propiedad nativo: el modelo Venta
+  almacena el campo "usuario" (ref User, requerido) y los controllers
+  createVenta/updateVenta lo fijan con req.usuario._id. No fue necesario
+  inventar un sistema de propiedad; solo se aplico la verificacion que faltaba.
+- El frontend usa /ventas/serie unicamente en Reportes.jsx (pagina restringida
+  a admin/encargada en frontend); no hay pantalla de vendedor que lo use.
+  Restringir el endpoint no rompe ninguna funcionalidad existente.
+
+2. SOLUCION APLICADA
+--------------------
+Unico archivo de codigo modificado: backend/src/routes/ventaRoutes.js.
+- Nuevo middleware verificarPropiedadVenta():
+  * admin y encargada (roles de gestion) pasan directamente (conservan sus
+    reglas actuales sin obtener privilegios extra).
+  * vendedor: carga la venta por ID y exige String(venta.usuario) ===
+    String(req.usuario._id). Si no coincide -> 403. Si la venta no existe,
+    deja pasar para que el servicio responda 404 con su mensaje normal.
+- GET /ventas/serie: ahora con requerirRolPermitido(["admin", "encargada"]).
+  El endpoint no fue eliminado.
+- Se retiro el import de autorizarRoles (no usado en este archivo).
+
+3. REGLAS FINALES DE AUTORIZACION
+---------------------------------
+- Autenticacion obligatoria en todo /api/ventas (router.use(authMiddleware)):
+  sin token o token invalido -> 401; usuario inactivo -> 401.
+- PUT /api/ventas/:id (editar borrador):
+  * admin: cualquier venta (sujeto a reglas de negocio del servicio).
+  * encargada: cualquier venta (gestion actual).
+  * vendedor: solo ventas BORRADOR propias (flujo normal del POS).
+  * vendedor sobre venta ajena -> 403.
+- PATCH /api/ventas/:id/confirmar:
+  * admin: cualquier venta.
+  * encargada: cualquier venta (permiso actual conservado).
+  * vendedor: solo sus propias ventas (confirmacion desde el POS).
+  * vendedor sobre venta ajena -> 403 (imposible saltarlo cambiando el ID).
+- GET /api/ventas/serie: solo admin y encargada; vendedor -> 403.
+- POST /api/ventas (POS): sin cambios; registra automaticamente al usuario
+  autenticado como responsable (venta.usuario).
+- PATCH /:id/anular: se mantiene exclusivo de admin (sin cambios).
+
+4. ENDPOINTS AFECTADOS
+----------------------
+- GET /api/ventas/serie (restringido).
+- PUT /api/ventas/:id (propiedad).
+- PATCH /api/ventas/:id/confirmar (propiedad).
+- Sin cambios: GET /, GET /:id, GET /estadisticas, GET
+  /productos-mas-vendidos, POST /, PATCH /:id/anular.
+
+5. PRUEBAS REALIZADAS
+---------------------
+Metodologia: servidor temporal propio en puerto 4100 apuntando a base aislada
+lapalmera_test (creada y eliminada en esta fase, como en la fase A.2), con
+usuarios y productos clonados de la base real (solo lectura sobre la real).
+Pruebas HTTP reales (fetch) contra el backend con el codigo nuevo.
+Adicionalmente, login contra el backend real del entorno (puerto 4000) tras el
+reinicio automatico de nodemon.
+
+AUTENTICACION
+- sin token PUT /ventas/:id ............ PASS (401)
+- sin token PATCH confirmar ............ PASS (401)
+- sin token GET /ventas/serie .......... PASS (401)
+- token invalido PUT ................... PASS (401)
+
+ADMIN (yasna)
+- login ................................ PASS (200, rol admin)
+- GET /ventas/serie .................... PASS (200)
+- GET /ventas (protegido) .............. PASS (200)
+- POST venta (responsable registrado) .. PASS (201)
+
+ENCARGADA (karla)
+- login ................................ PASS (200, rol encargada)
+- GET /ventas/serie .................... PASS (200)
+- editar borrador (gestion) ............ PASS (200)
+- confirmar venta (gestion) ............ PASS (200, CONFIRMADA)
+- anular venta (exclusivo admin) ....... PASS (403)
+
+VENDEDOR
+- login ................................ PASS (200, rol vendedor)
+- GET /ventas/serie .................... PASS (403)
+- editar su propia venta (POS) ......... PASS (200)
+- confirmar su propia venta (POS) ...... PASS (200, CONFIRMADA)
+- intentar editar venta de otro usuario  PASS (403)
+- intentar confirmar venta de otro us. . PASS (403)
+
+POS / FLUJO NORMAL
+- POST venta desde POS (vendedor) ...... PASS (201)
+- confirmacion normal .................. PASS (200, CONFIRMADA)
+- stock descontado correctamente ....... PASS (105 -> 102 por 3 ventas
+  confirmadas con el mismo producto en la base de prueba)
+
+RESULTADO GENERAL: todas las pruebas de autorizacion PASARON.
+
+6. PRUEBA DE NO REGRESION
+-------------------------
+- npm run build: PASS (55 modulos, JS 403.62 kB / gzip 103.68 kB).
+- Login Yasna (admin) contra backend real: PASS.
+- Login Karla (encargada) contra backend real: PASS.
+- Login Vendedor (vendedor) contra backend real: PASS.
+- POS: creacion y confirmacion normal de ventas verificadas (base de prueba).
+- Stock y logica de venta: sin cambios de codigo; descuento verificado en la
+  base de prueba (3 confirmaciones = -3 unidades exactas).
+- Permisos de roles: sin cambios (solo se agregaron restricciones).
+- Frontend: sin modificaciones (no fue necesario; los consumidores de estos
+  endpoints ya eran admin/encargada o el propio vendedor sobre su venta).
+
+7. MONGODB REAL
+---------------
+Intacta. Conteos verificados al cierre: ventas 42, detalleventas 48,
+products 53, clients 14, compras 3, detallecompras 5, movimientocuentas 29,
+categories 16, providers 1, secuencias 1, users 5. Usuarios sin cambios
+(admin activo=false por la fase B.2.1; yasna/karla/vendedor/vendedor1
+intactos). Ninguna contrasena modificada. Ninguna venta creada ni eliminada.
+lapalmera_test creada solo para pruebas y eliminada (0 colecciones al final).
+
+8. npm run build: PASS (ver punto 6).
+
+9. git diff
+-----------
+Unico archivo modificado en esta fase: backend/src/routes/ventaRoutes.js
+- agregado import de Venta (modelo);
+- agregado esGestion() y verificarPropiedadVenta();
+- /serie restringido a admin/encargada;
+- PUT /:id y PATCH /:id/confirmar con verificarPropiedadVenta;
+- removido import de autorizarRoles (sin uso en este archivo).
+
+10. git status
+--------------
+Sin archivos nuevos de esta fase salvo el presente informe. Los archivos M y
+?? listados corresponden a trabajo de fases anteriores (fix fiado A.2,
+seguridad B.2.1, desarrollo previo). Sin commit, sin push.
+
+11. PROCESOS
+------------
+- Servidor temporal de pruebas (PID 26408, puerto 4100): detenido al finalizar.
+- lapalmera_test: eliminada.
+- Archivos temporales de prueba: eliminados.
+- Quedan solo los procesos del entorno de desarrollo del usuario (npm run dev
+  frontend y backend, vite, nodemon iniciados a las 12:04) mas el hijo de
+  nodemon reiniciado a las 16:49 con el codigo actualizado (parte del entorno
+  del usuario, no un proceso propio).
+
+12. PROBLEMAS PENDIENTES
+------------------------
+- Ninguno detectado en el alcance de esta fase. Como observacion (no
+  corregida, fuera de alcance): GET /ventas/:id y GET /ventas estan
+  restringidos a admin/encargada; el vendedor solo consulta sus ventas por la
+  respuesta del POST. Si en el futuro el vendedor necesitara consultar el
+  detalle de sus propios borradores/ventas por ID, habria que extender la
+  verificacion de propiedad a GET /:id. El frontend actual no lo requiere.
+
+VERIFICACION FINAL
+------------------
+- Todas las pruebas ejecutadas: PASS (autorizacion, autenticacion, POS).
+- Build: PASS.
+- git diff/status: verificados (unico cambio de codigo: ventaRoutes.js).
+- Sin commit, sin push.
+- Sin procesos propios ejecutandose (temporal detenido y limpio).
+- MongoDB real intacta (unicas escrituras en base aislada de prueba, borrada).
+- Informe entregado. Detenido (no se continua con B.2.3).

@@ -1,6 +1,8 @@
 import Product from "../models/productModel.js";
 import Category from "../models/categoryModel.js";
 import Provider from "../models/providerModel.js";
+import DetalleVenta from "../models/detalleVentaModel.js";
+import DetalleCompra from "../models/detalleCompraModel.js";
 
 function validar(data) {
   const errores = [];
@@ -339,8 +341,26 @@ export async function actualizar(id, data) {
 }
 
 export async function eliminar(id) {
-  const producto = await Product.findByIdAndDelete(id);
+  const producto = await Product.findById(id);
   if (!producto) throw new Error("Producto no encontrado.");
+
+  const [enVentas, enCompras] = await Promise.all([
+    DetalleVenta.countDocuments({ producto: id }),
+    DetalleCompra.countDocuments({ producto: id }),
+  ]);
+
+  if (enVentas > 0 || enCompras > 0) {
+    const err = new Error(
+      "El producto no puede eliminarse porque tiene movimientos históricos asociados.",
+    );
+    err.errores = [
+      `El producto "${producto.nombre}" aparece en ${enVentas} venta(s) y ${enCompras} compra(s) histórica(s). Desactívalo en lugar de eliminarlo.`,
+    ];
+    err.status = 409;
+    throw err;
+  }
+
+  await Product.findByIdAndDelete(id);
   return producto;
 }
 

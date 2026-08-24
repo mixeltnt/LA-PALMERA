@@ -1,0 +1,245 @@
+================================================================================
+LA-PALMERA — INFORME TÉCNICO
+Adaptación del sistema como aplicación instalada (Windows primero, Android futuro)
+Fecha: 15/08/2026
+Estado: Análisis únicamente. No se modificó ningún archivo, no se instalaron
+paquetes, no se levantaron servidores, no hubo commit ni push.
+================================================================================
+
+--------------------------------------------------------------------------------
+1. ESTADO ACTUAL DE LA-PALMERA
+--------------------------------------------------------------------------------
+
+Frontend (frontend/):
+- React 19.2.7 + Vite 8.1.1 + React Router 7.18.1 + Bootstrap 5.3.8 (CSS + icons).
+- SPA pura con BrowserRouter. Proxy dev "/api -> http://localhost:4000" en
+  vite.config.js (SOLO existe en desarrollo).
+- Ya existe una PWA: manifest.json + sw.js con estrategia segura (nunca cachea
+  /api) e íconos en public/icons/.
+- Comunicación con backend 100% HTTP vía services/api.js (API_URL = "/api",
+  relativo; maneja 401 limpiando sesión y redirigiendo a /login).
+- Tokens JWT en localStorage/sessionStorage.
+- Tema claro/oscuro vía [data-theme] + localStorage.
+- Ticket impreso con window.print().
+- Módulos: Login, Dashboard, Inventario, Productos, Categorías, Ventas (POS +
+  Historial), Compras, Clientes, Proveedores, Usuarios, Reportes, Configuración.
+- Nota: existe pages/Caja/Caja.jsx SIN ruta registrada en AppRoutes (módulo sin
+  conectar, no bloquea nada).
+
+Backend (backend/):
+- Node ESM + Express 5 + Mongoose 9 + bcryptjs + JWT, puerto 4000.
+- .env local con PORT, MONGODB_URI (localhost:27017/lapalmera), JWT_SECRET y las
+  contraseñas de seed. NO hay HTTPS, NO hay gestor de procesos (solo npm start).
+- server.js crea el admin inicial idempotente.
+- CORS abierto (app.use(cors()) sin restricciones).
+
+Datos:
+- MongoDB local en la misma máquina.
+- Todo el flujo de negocio (ventas, stock, fiado, permisos) ya funciona y NO
+  debe tocarse.
+
+--------------------------------------------------------------------------------
+2. VIABILIDAD DE CONVERTIRLO EN APLICACIÓN WINDOWS
+--------------------------------------------------------------------------------
+
+MUY ALTA. El frontend es una SPA estándar sin dependencias del navegador: todo
+(escáner vía eventos de teclado, impresión, tema, rutas) funciona dentro de
+cualquier webview moderno.
+
+El único cambio de código imprescindible es hacer configurable la URL de la API
+(hoy es relativa "/api" y depende del proxy de Vite, que solo existe en
+desarrollo). El resto es empaquetado y despliegue. Backend y MongoDB se
+mantienen como están.
+
+--------------------------------------------------------------------------------
+3. TAURI VS ELECTRON
+--------------------------------------------------------------------------------
+
+  Criterio          | Tauri v2 (RECOMENDADO)        | Electron
+  ------------------+-------------------------------+--------------------------
+  Tamaño instalador | ~5-15 MB                      | ~150-250 MB
+  RAM en uso        | Muy baja (WebView2 del S.O.)  | Alta (Chrome completo)
+  Requisito Windows | WebView2 (Win10/11 lo traen)  | Ninguno extra
+  Instalador        | NSIS/WiX nativo               | Squirrel/NSIS
+  Backend Node      | No (se mantiene aparte)       | Podría, pero engorroso
+  Soporte Android   | SÍ, nativo con el mismo front | No oficial (parches)
+  Costo aprendizaje | Rust (solo config/plugins)    | JavaScript puro
+
+RECOMENDACIÓN CONCRETA: Tauri v2.
+- Para un POS ligero local, el tamaño y la RAM importan (PCs de minimarket
+  suelen ser modestos).
+- Soporte Android oficial con el mismo frontend = encaja con el objetivo
+  futuro de tablets/celulares.
+- La lógica de negocio queda intacta: Tauri solo es "la ventana".
+
+--------------------------------------------------------------------------------
+4. ARQUITECTURA RECOMENDADA
+--------------------------------------------------------------------------------
+
+  Aplicación Windows (Tauri = WebView2 + frontend React empaquetado)
+        |  HTTP (http://localhost:4000/api)
+  Backend Node/Express (servicio de Windows, se instala aparte)
+        |
+  MongoDB local (mongod como servicio)
+
+- La app Tauri contiene SOLO el frontend (dist de Vite). NO incluye el backend.
+- El backend se instala como SERVICIO de Windows (NSSM o Tarea Programada):
+  arranca solo al iniciar el PC, sin ventanas.
+- MongoDB se instala como servicio estándar de Windows (mongod --install).
+- La versión web actual sigue igual (conviven sin problema).
+
+--------------------------------------------------------------------------------
+5. ARCHIVOS NUEVOS (fase de empaquetado)
+--------------------------------------------------------------------------------
+
+1. frontend/src-tauri/ — carpeta Tauri completa:
+   - tauri.conf.json, Cargo.toml, src/main.rs y lib.rs,
+     capabilities/default.json, icons/ (.ico y .png 32/128/512 — generados
+     desde el favicon SVG actual).
+2. frontend/.env.production (o src/config.js) — define
+   VITE_API_URL=http://localhost:4000 (solo la URL, NO es un secreto).
+3. backend/scripts/instalar-servicio-windows.ps1 — opcional: registra el
+   backend como servicio (NSSM/Task Scheduler).
+4. docs/guia-instalacion.md — opcional: manual de instalación.
+
+--------------------------------------------------------------------------------
+6. ARCHIVOS EXISTENTES A MODIFICAR (MÍNIMOS)
+--------------------------------------------------------------------------------
+
+1. frontend/src/services/api.js — API_URL = import.meta.env.VITE_API_URL ||
+   "/api"  (1 línea; mantiene dev intacto).
+2. frontend/package.json — scripts tauri / tauri:build, dependencia dev
+   @tauri-apps/cli.
+3. frontend/vite.config.js — posible base: "./" si se necesita (en Tauri v2
+   normalmente no hace falta).
+4. (Opcional) frontend/index.html — fuentes de Google (único recurso externo):
+   se pueden dejar (tienen fallback) o alojarlas localmente.
+
+NADA MÁS. No se tocan componentes, rutas, servicios ni el backend.
+
+--------------------------------------------------------------------------------
+7. PARTES QUE NO DEBERÍAN TOCARSE
+--------------------------------------------------------------------------------
+
+- Todo backend/ (lógica de ventas, stock, fiado, autenticación, permisos, seed).
+- Ventas.jsx, TicketVenta.jsx, escáner, carrito, cobro, búsqueda rápida.
+- AuthContext, ProtectedRoute, AppRoutes, Sidebar, tema claro/oscuro.
+- sw.js / manifest.json (la PWA sigue viva para web y Android futuro).
+
+--------------------------------------------------------------------------------
+8. CÓMO FUNCIONARÍA EL BACKEND
+--------------------------------------------------------------------------------
+
+Se mantiene EXACTAMENTE IGUAL como proceso independiente. El único cambio es
+operativo: en vez de "npm start" a mano, se registra como servicio de Windows
+que arranca solo. Opciones: NSSM (recomendado, simple y robusto) o Tarea
+Programada con npm start.
+
+Al reiniciar el PC el servicio levanta solo; la app Tauri espera sin problema
+(muestra login y reintenta).
+
+--------------------------------------------------------------------------------
+9. CÓMO FUNCIONARÍA MONGODB
+--------------------------------------------------------------------------------
+
+Igual que hoy: mongodb://localhost:27017/lapalmera, instalado como servicio de
+Windows (configuración estándar de mongod). No cambia nada en código ni datos.
+Si algún día el backend fuera remoto, solo cambia MONGODB_URI en el .env del
+backend.
+
+--------------------------------------------------------------------------------
+10. VARIABLES DE ENTORNO Y SECRETOS
+--------------------------------------------------------------------------------
+
+- JWT_SECRET, MONGODB_URI y las contraseñas de seed se quedan en
+  backend/.env (servidor local, NUNCA dentro del instalador). El binario
+  Tauri solo contiene el frontend, que no tiene secretos.
+- VITE_API_URL no es secreto (solo la dirección del backend) y se incrusta en
+  el build del frontend sin riesgo.
+- Tokens JWT: hoy viven en localStorage del webview (aislado por perfil de
+  WebView2). Aceptable para red local; mejora futura: guardarlos en el keyring
+  de Windows vía plugin de Tauri.
+- RIESGO A EVITAR: NO empaquetar el backend como "sidecar" dentro del
+  instalador (el .env quedaría extraíble del .exe). Por eso la arquitectura
+  del punto 4.
+- Opcional de endurecimiento: restringir CORS al origin del webview y hacer
+  que Express escuche solo en 127.0.0.1.
+
+--------------------------------------------------------------------------------
+11. QUÉ PASARÍA SIN INTERNET
+--------------------------------------------------------------------------------
+
+NADA SE ROMPE: backend y MongoDB son locales, así que login, ventas, stock y
+todo el negocio funcionan sin Internet. Únicos efectos cosméticos:
+- Las fuentes de Google (Inter) caen al fallback del sistema.
+- El registro del service worker no ocurre dentro de Tauri (falla
+  silenciosamente; ya está contemplado en main.jsx).
+La PWA web sí depende del servidor, pero la app de escritorio no.
+
+--------------------------------------------------------------------------------
+12. PLAN FUTURO PARA ANDROID
+--------------------------------------------------------------------------------
+
+Tauri v2 compila el MISMO frontend para Android (WebView Android). Al mantener
+el frontend "tonto" (solo HTTP + estado local), se reutilizará todo: rutas,
+servicios, tema, POS. Para Android/tablet habrá que:
+- Definir VITE_API_URL apuntando al backend por LAN (http://IP-del-pc:4000) —
+  requiere CORS para ese origen.
+- Ajustes de UI táctil (el diseño ya es responsive).
+- (Futuro) plugin de escáner por cámara si se quiere, además del lector USB.
+
+Mantener sw.js + manifest ya da además la PWA instalable como plan B inmediato
+para Android sin Tauri. La arquitectura elegida (API por HTTP configurable) no
+cierra ninguna de las dos puertas.
+
+--------------------------------------------------------------------------------
+13. RIESGOS O PROBLEMAS A CONSIDERAR
+--------------------------------------------------------------------------------
+
+1. WebView2 y BrowserRouter: en Tauri v2 el webview se sirve por
+   http://tauri.localhost, donde pushState funciona (en Tauri v1 con tauri://
+   no). Verificarlo en la Fase 2; plan B: HashRouter (cambio pequeño).
+2. Impresión de ticket (window.print()): funciona en WebView2 pero abre el
+   diálogo nativo de Windows; para impresoras térmicas puede requerir ajuste
+   de driver o (mejor, en fase posterior) el plugin de impresión de Tauri.
+3. Escáner USB tipo teclado: funciona igual (eventos de teclado globales ya
+   implementados); validar el foco automático dentro del webview.
+4. Rust toolchain: solo se necesita en la máquina de desarrollo para compilar
+   el instalador (primera descarga ~1 GB).
+5. Backend sin gestor de procesos hoy: si el PC se reinicia y el backend no es
+   servicio aún, la app muestra "servidor no disponible". El punto 8 es parte
+   del plan, no opcional.
+6. CORS abierto + red local: aceptable mientras todo sea localhost; si se abre
+   el backend a la LAN (para Android futuro), restringir orígenes.
+7. Caja.jsx sin ruta en AppRoutes: no bloquea nada; pendiente aclarar.
+8. Iconos: el instalador necesita íconos .ico/.png generados (tarea de diseño
+   menor).
+
+--------------------------------------------------------------------------------
+14. PLAN DE IMPLEMENTACIÓN POR FASES
+--------------------------------------------------------------------------------
+
+  Fase | Qué se hace                                   | Criterio de salida
+  -----+-----------------------------------------------+-----------------------------------
+  0    | Este análisis (sin cambios)                   | Aprobación del usuario
+  1    | api.js con VITE_API_URL configurable +        | Web dev sigue igual;
+       | .env.production                               | build limpio
+  2    | Instalar @tauri-apps/cli, crear src-tauri,    | POS funciona dentro de
+       | íconos, config; probar tauri dev (login,      | la ventana Tauri
+       | escáner, cobro, ticket, tema)
+  3    | tauri build -> instalador NSIS + acceso       | Instalador .exe probado
+       | directo "La Palmera" + autoarranque opcional  | en Windows limpio
+  4    | Backend como servicio (NSSM/Task Scheduler)   | App arranca sola tras
+       | + Mongo como servicio + prueba de reinicio    | reinicio del PC
+  5    | Endurecimiento: CORS restringido, token en    | Revisión de seguridad
+       | keyring (opcional), impresión térmica validada
+  6    | Android: tauri android init, VITE_API_URL a   | APK instalable (fase
+       | LAN, pruebas en tablet                        | futura, a evaluar)
+
+--------------------------------------------------------------------------------
+NOTA FINAL
+--------------------------------------------------------------------------------
+Este informe fue generado SIN modificar archivos, sin instalar paquetes, sin
+levantar servidores y sin commit/push. Cuando se apruebe, se comienza por la
+Fase 1 (cambio de 1 línea en api.js + archivo de entorno).
+================================================================================

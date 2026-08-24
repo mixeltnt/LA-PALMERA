@@ -7,7 +7,7 @@ import {
   deleteProvider,
   getProviderStats,
 } from "../controllers/providerController.js";
-import { authMiddleware } from "../middleware/authMiddleware.js";
+import { authMiddleware, autorizarRoles } from "../middleware/authMiddleware.js";
 
 const router = Router();
 
@@ -16,8 +16,8 @@ router.use(authMiddleware);
 router.get("/stats", getProviderStats);
 router.get(["/", ""], getProviders);
 router.get("/:id", getProviderById);
-router.post(["/", ""], createProvider);
-router.put("/:id", updateProvider);
-router.delete("/:id", deleteProvider);
+router.post(["/", ""], autorizarRoles("admin", "encargada"), createProvider);
+router.put("/:id", autorizarRoles("admin", "encargada"), updateProvider);
+router.delete("/:id", autorizarRoles("admin", "encargada"), deleteProvider);
 
 export default router;

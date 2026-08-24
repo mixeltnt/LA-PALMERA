@@ -1,13 +1,17 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
+import LaPalmeraLogo from "../../components/LaPalmeraLogo";
+import "./Login.css";
 
 function Login() {
-  const { login, loading, isAuthenticated } = useAuth();
+  const { login, loading, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ usuario: "", password: "" });
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState("");
+
+  const destinoInicial = user?.rol === "vendedor" ? "/ventas" : "/dashboard";
 
   // Mostrar mensaje de sesión expirada si viene desde el redireccionamiento
   useEffect(() => {
@@ -25,7 +29,8 @@ function Login() {
     }
   }, []);
 
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  if (isAuthenticated)
+    return <Navigate to={destinoInicial} replace />;
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -39,110 +44,121 @@ function Login() {
       return;
     }
     try {
-      await login(form.usuario, form.password, remember);
-      navigate("/dashboard", { replace: true });
+      const data = await login(form.usuario, form.password, remember);
+      navigate(
+        data.usuario?.rol === "vendedor" ? "/ventas" : "/dashboard",
+        { replace: true },
+      );
     } catch (err) {
       setError(err.message || "Credenciales inválidas.");
     }
   };
 
   return (
-    <div className="min-vh-100 d-flex align-items-center justify-content-center bg-success-subtle">
-      <div
-        className="card shadow-lg border-0"
-        style={{ width: 420, borderRadius: 16 }}
-      >
-        <div className="card-body p-5">
-          <div className="text-center mb-4">
-            <div className="mb-3">
-              <img src="/favicon.svg" alt="La Palmera" width="64" height="64" />
+    <div className="lp-login">
+      <div className="lp-login__card">
+        <div className="text-center">
+          <LaPalmeraLogo variant="full" className="lp-login__logo-svg" />
+          <h2 className="lp-login__title">LA PALMERA</h2>
+          <p className="lp-login__subtitle">Sistema de Gestión para Minimarket</p>
+        </div>
+
+        {error && (
+          <div className="lp-login__alert" role="alert">
+            <i className="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          <div className="lp-login__field">
+            <label className="lp-login__label" htmlFor="lp-usuario">
+              Usuario
+            </label>
+            <div className="lp-login__input-group">
+              <span className="lp-login__input-icon" aria-hidden="true">
+                <i className="bi bi-person"></i>
+              </span>
+              <input
+                className="lp-login__input"
+                type="text"
+                name="usuario"
+                id="lp-usuario"
+                placeholder="Ingrese su usuario"
+                value={form.usuario}
+                onChange={handleChange}
+                autoFocus
+              />
             </div>
-            <h2 className="fw-bold text-success">LA PALMERA</h2>
-            <p className="text-muted small">
-              Sistema de Gestión para Minimarket
-            </p>
           </div>
 
-          {error && (
-            <div className="alert alert-danger py-2 small" role="alert">
-              <i className="bi bi-exclamation-triangle me-1"></i>
-              {error}
+          <div className="lp-login__field">
+            <label className="lp-login__label" htmlFor="lp-password">
+              Contraseña
+            </label>
+            <div className="lp-login__input-group">
+              <span className="lp-login__input-icon" aria-hidden="true">
+                <i className="bi bi-lock"></i>
+              </span>
+              <input
+                className="lp-login__input"
+                type="password"
+                name="password"
+                id="lp-password"
+                placeholder="Ingrese su contraseña"
+                value={form.password}
+                onChange={handleChange}
+              />
             </div>
-          )}
+          </div>
 
-          <form onSubmit={handleSubmit}>
-            <div className="mb-3">
-              <label className="form-label small fw-semibold">Usuario</label>
-              <div className="input-group">
-                <span className="input-group-text bg-light">
-                  <i className="bi bi-person"></i>
-                </span>
-                <input
-                  className="form-control"
-                  type="text"
-                  name="usuario"
-                  placeholder="Ingrese su usuario"
-                  value={form.usuario}
-                  onChange={handleChange}
-                  autoFocus
-                />
-              </div>
-            </div>
+          <label className="lp-login__check">
+            <input
+              className="lp-login__check-input"
+              type="checkbox"
+              id="remember"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+            />
+            <span className="lp-login__check-box" aria-hidden="true">
+              <i className="bi bi-check-lg"></i>
+            </span>
+            <span className="lp-login__check-label">Recordar sesión</span>
+          </label>
 
-            <div className="mb-3">
-              <label className="form-label small fw-semibold">Contraseña</label>
-              <div className="input-group">
-                <span className="input-group-text bg-light">
-                  <i className="bi bi-lock"></i>
-                </span>
-                <input
-                  className="form-control"
-                  type="password"
-                  name="password"
-                  placeholder="Ingrese su contraseña"
-                  value={form.password}
-                  onChange={handleChange}
-                />
-              </div>
-            </div>
+          <button
+            className="lp-login__btn"
+            type="submit"
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <span
+                  className="spinner-border spinner-border-sm"
+                  role="status"
+                ></span>
+                Ingresando...
+              </>
+            ) : (
+              <>
+                <i className="bi bi-box-arrow-in-right" aria-hidden="true"></i>
+                Ingresar
+              </>
+            )}
+          </button>
+        </form>
 
-            <div className="d-flex justify-content-between align-items-center mb-4">
-              <div className="form-check">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  id="remember"
-                  checked={remember}
-                  onChange={(e) => setRemember(e.target.checked)}
-                />
-                <label className="form-check-label small" htmlFor="remember">
-                  Recordar sesión
-                </label>
-              </div>
-            </div>
-
-            <button
-              className="btn btn-success w-100 py-2 fw-semibold"
-              type="submit"
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <span
-                    className="spinner-border spinner-border-sm me-2"
-                    role="status"
-                  ></span>
-                  Ingresando...
-                </>
-              ) : (
-                <>
-                  <i className="bi bi-box-arrow-in-right me-2"></i>
-                  Ingresar
-                </>
-              )}
-            </button>
-          </form>
-        </div>
+        <footer className="lp-login__footer">
+          <span>Seguro</span>
+          <span className="lp-login__sep" aria-hidden="true">
+            •
+          </span>
+          <span>Rápido</span>
+          <span className="lp-login__sep" aria-hidden="true">
+            •
+          </span>
+          <span>Confiable</span>
+        </footer>
       </div>
     </div>
   );

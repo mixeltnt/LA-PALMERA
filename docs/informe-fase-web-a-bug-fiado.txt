@@ -1,0 +1,322 @@
+INFORME FASE WEB A - INVESTIGACION DEL BUG CRITICO DE FIADO
+===========================================================
+Fecha: 15 de agosto de 2026
+Modo: 100% solo lectura (sin modificaciones de codigo, sin escrituras en MongoDB,
+sin commit, sin push)
+Archivos analizados:
+- backend/src/services/movimientoCuentaService.js (funcion anularPorVenta)
+- backend/src/services/ventaService.js (confirmar, anular)
+- backend/src/models/movimientoCuentaModel.js
+- backend/src/models/clientModel.js
+- Base de datos mongodb://localhost:27017/lapalmera (ventas, detalleventas,
+  movimientocuentas, clients, users) - solo consultas
+
+
+1. CAUSA RAIZ EXACTA
+--------------------
+Archivo: backend/src/services/movimientoCuentaService.js, funcion anularPorVenta()
+(lineas 150-199). El flujo actual es:
+
+  1) updateMany: marca ANULADO todos los movimientos VENTA_FIADA activos de la
+     venta (lineas 164-176).
+  2) saldoActual = obtenerSaldoCliente(clienteId)  -> DESPUES de anular
+     (linea 178).
+  3) exceso = Math.max(0, montoVenta - saldoActual)  (linea 179).
+  4) Si exceso > 0: crea movimiento REVERSO_ABONO con monto = exceso (linea 182).
+
+El error es el ORDEN: el saldo se calcula DESPUES de marcar los movimientos
+como ANULADO. La formula "exceso = montoVenta - saldo" solo es correcta si
+saldo es el saldo PREVIO a la anulacion (saldoAntes).
+
+Demostracion algebraica del error (con abono parcial A, venta M, sin otras
+deudas):
+  - saldoAntes = M - A
+  - Tras anular: saldoActual = saldoAntes - M = -A
+  - exceso REAL generado = max(0, M - (-A)) = M + A   <-- ERRONEO
+  - exceso CORRECTO = max(0, M - saldoAntes) = A      <-- lo que se queria
+
+Consecuencia: el REVERSO_ABONO se crea por M + A en vez de A, y el saldo final
+del cliente queda en +M (deuda por el total de una venta YA ANULADA) en lugar
+de quedar en 0 (o en credito).
+
+Datos observados en MongoDB: los 4 REVERSO_ABONO existentes (montos 1000, 1000,
+1500 y 1000) coinciden EXACTAMENTE con los abonos registrados en ese momento,
+lo que demuestra que fueron generados por una version anterior del codigo que
+calculaba el saldo ANTES de anular (comportamiento correcto). El codigo actual
+(git diff vacio vs HEAD: el bug ya esta commiteado) producira REVERSO_ABONO por
+M + A. La formula actual nunca pudo generar los montos que estan en la base.
+
+NOTA DE CORRECCION AL INFORME ANTERIOR (informe-auditoria-web.txt):
+En la auditoria previa se reportaron saldos "invertidos" (FIA Parcial A2 = -3000,
+etc.). Ese calculo fue un error del script de analisis (se aplico signo negativo
+a REVERSO_ABONO, cuando el codigo lo suma a la deuda). Los datos ACTUALES en
+MongoDB NO estan corruptos: los 4 clientes con REVERSO_ABONO tienen saldo $0,
+que es el valor correcto segun la semantica del sistema. El peligro real es el
+CODIGO ACTUAL: la PROXIMA anulacion de una venta fiada con abonos creara deuda
+fantasma. Esta fase corrige ese reporte.
+
+Convencion de signos del sistema (calcularSaldoDesdeMovimientos, lineas 23-42):
+  VENTA_FIADA ....... +monto (aumenta deuda)
+  ABONO ............. -monto (disminuye deuda)
+  REVERSO_ABONO ..... +monto (reversa el abono: vuelve a sumar deuda, cancelando
+                      el efecto del abono => neto 0 con el abono activo)
+
+
+2. EJEMPLO MATEMATICO: VENTA FIADA SIN ABONOS
+---------------------------------------------
+Venta fiada por M = $2.000, sin abonos (equivalente a V#7, V#13, V#14, V#18,
+V#20, V#21 de la base).
+
+Saldo antes:  0 (o deuda de otras ventas)
+Confirmacion: VF +$2.000  -> saldo +$2.000
+Anulacion con el codigo ACTUAL:
+  1) VF -> ANULADO
+  2) saldoActual = $0
+  3) exceso = max(0, 2000 - 0) = $2.000
+  4) REVERSO_ABONO = +$2.000  -> saldo final = +$2.000
+  RESULTADO: el cliente DEBE $2.000 por una venta anulada.  [MAL]
+Saldo correcto esperado: $0 (la venta anulada no genera deuda).
+Codigo correcto: exceso = max(0, 2000 - 2000) = 0 -> sin REVERSO -> saldo $0.  [BIEN]
+Con el codigo correcto, en la base no se habria creado ningun REVERSO (coincide
+con V#7, V#13, V#14, V#20, V#21: sin REVERSO).
+
+
+3. EJEMPLO MATEMATICO: VENTA FIADA CON ABONO PARCIAL
+----------------------------------------------------
+Venta fiada por M = $2.000, abono A = $1.000 (caso real: V#12 FIA Cliente A).
+
+Saldo antes: 0
+Confirmacion: VF +$2.000; abono -$1.000 -> saldo +$1.000
+Anulacion con el codigo ACTUAL:
+  1) VF -> ANULADO
+  2) saldoActual = -$1.000 (queda el credito del abono)
+  3) exceso = max(0, 2000 - (-1000)) = $3.000
+  4) REVERSO_ABONO = +$3.000 -> saldo final = -1000 + 3000 = +$2.000
+  RESULTADO: el cliente DEBE los $2.000 completos de la venta anulada, a pesar
+  de haber abonado $1.000.  [MAL]
+Codigo correcto: exceso = max(0, 2000 - 1000) = $1.000 -> REVERSO +$1.000 ->
+saldo final = -1000 + 1000 = $0.  [BIEN - coincide exactamente con el registro
+REVERSO_ABONO de $1.000 que existe en la base para V#12]
+
+Interpretacion del resultado correcto (semantica del sistema): el abono $1.000
+se "revierte" (se devuelve al cliente / se cancela como pago), el saldo queda
+en $0 y el historial muestra: VF anulado, ABONO $1.000, REVERSO $1.000.
+
+Nota: si el negocio prefiriera dejar el abono como credito a favor del cliente
+(saldo -$1.000), bastaria con NO crear REVERSO_ABONO (ver seccion 7, opcion B).
+
+
+4. EJEMPLO MATEMATICO: VENTA FIADA TOTALMENTE ABONADA
+-----------------------------------------------------
+Venta fiada por M = $2.000, abono total A = $2.000 (no existe en la base, pero
+es el peor caso matematico; equivalente con $3.550 de abonos de "Cliente Prueba
+Fiado" para sus ventas #8 y #9).
+
+Saldo antes: 0
+Confirmacion: VF +$2.000; abono -$2.000 -> saldo $0
+Anulacion con el codigo ACTUAL:
+  1) VF -> ANULADO
+  2) saldoActual = -$2.000
+  3) exceso = max(0, 2000 - (-2000)) = $4.000
+  4) REVERSO_ABONO = +$4.000 -> saldo final = -2000 + 4000 = +$2.000
+  RESULTADO: el cliente DEBE $2.000 habiendo pagado el 100% de la venta. [MAL]
+Codigo correcto: exceso = max(0, 2000 - 0) = $2.000 -> REVERSO +$2.000 ->
+saldo final $0.  [BIEN]
+
+Escenario combinado (otras deudas activas): si el cliente adeuda D en otras
+ventas activas, la formula correcta exceso = max(0, M - (D + M - A)) =
+max(0, A - D) reparte el abono primero contra las deudas activas y solo reversa
+el sobrante. Ej.: D = $500, M = $2.000, A = $1.000 -> exceso = $500; saldo final
+= 500 - 1000 + 500 = $0, y el cliente queda con $500 de credito contra su deuda
+activa de $500. Correcto.
+
+
+5. LISTA DE REGISTROS ACTUALMENTE AFECTADOS (base en su estado actual)
+---------------------------------------------------------------------
+Total ventas FIADO: 21 (8 CONFIRMADAS, 10 ANULADAS, 3 BORRADOR).
+No existen inconsistencias de estado: cada venta CONFIRMADA tiene exactamente 1
+movimiento VENTA_FIADA ACTIVO; cada venta ANULADA tiene su VENTA_FIADA ANULADO;
+los BORRADOR no generan movimientos. No hay ventas con multiples movimientos
+VF (la duplicidad reportada antes era una colision de ids truncados del script).
+
+Ventas FIADO ANULADAS (10) - todas con saldo correcto en la base:
+  V#7   $1.400  Cliente Prueba Fiado (limite 10000)   sin abonos, sin REV
+  V#12  $2.000  FIA Cliente A                         abono 1000 + REV 1000
+  V#13  $2.000  FIA Cliente B                         sin abonos, sin REV
+  V#14  $2.000  FIA Cliente C                         sin abonos, sin REV
+  V#17  $2.000  FIA Parcial A                         abono 1000 + REV 1000
+  V#18  $2.000  (sin cliente)                         sin movimientos
+  V#19  $2.000  FIA Parcial A2                        abono 1500 + REV 1500
+  V#20  $2.000  FIA Parcial B                         sin abonos, sin REV
+  V#21  $2.000  FIA Parcial C                         sin abonos, sin REV
+  V#24  $2.000  Cliente Focal Abono Parcial           abono 1000 + REV 1000
+
+REVERSO_ABONO existentes (4, todos ACTIVO): $1.000 (V#12), $1.000 (V#17),
+$1.500 (V#19), $1.000 (V#24). Cada uno es exactamente igual al abono registrado
+para ese cliente, generados por la version correcta del codigo. NO son basura:
+son el registro de abonos revertidos y son coherentes.
+
+Clientes con deuda actual (8 ventas CONFIRMADAS):
+  V#8 $750, V#9 $2.800, V#30 $750 (Cliente Prueba Fiado), V#15 $3.000
+  (FIA Cliente C), V#22 $3.000 (FIA Parcial C), V#26 $2.000 (Cliente Vendedor
+  Fiado), V#35 $1.500 ([TEST] Cliente Fiado), V#47 $500 (vieja culea).
+
+Los registros "afectados" por el BUG son los que se corromperian si HOY se
+anulara una venta fiada con abonos (cualquiera de las 8 confirmadas con saldo,
+o una futura). Con el codigo actual, el REVERSO_ABONO resultante seria M + A
+(deuda fantasma por el total de la venta).
+
+
+6. SALDO ACTUAL VS SALDO ESPERADO POR CLIENTE
+---------------------------------------------
+Formula del sistema: saldo = SUM(VF activos) + SUM(REV activos) - SUM(ABONO
+activos). Estado actual de la base (verificado por consulta) y esperado segun
+el historial (mismo calculo): TODOS coinciden.
+
+  Cliente                        Saldo actual  Saldo esperado  Diferencia
+  Cliente Prueba Fiado (lim10k)      $750           $750            $0
+  Cliente Prueba Fiado (lim 0)         $0             $0            $0
+  FIA Cliente A                         $0             $0            $0
+  FIA Cliente B                         $0             $0            $0
+  FIA Cliente C                     $2.000         $2.000            $0
+  FIA Parcial A                         $0             $0            $0
+  FIA Parcial A2                        $0             $0            $0
+  FIA Parcial B                         $0             $0            $0
+  FIA Parcial C                     $2.000         $2.000            $0
+  Cliente Focal Abono Parcial           $0             $0            $0
+  Cliente Vendedor Fiado            $2.000         $2.000            $0
+  [TEST] Cliente Fiado              $1.500         $1.500            $0
+  vieja culea                         $500           $500            $0
+
+Los saldos esperados bajo la semantica A (abono queda como credito, sin REV)
+serian: FIA Cliente A -$1.000, FIA Parcial A -$1.000, FIA Parcial A2 -$1.500,
+Cliente Focal Abono Parcial -$1.000 (creditos a favor). Es una decision de
+negocio, no un dato erroneo: la base refleja hoy la semantica B (abono
+revertido, saldo 0).
+
+
+7. PROPUESTA DE CORRECCION DEL CODIGO
+-------------------------------------
+OPCION A (recomendada - minimo cambio, restaura el comportamiento que genero
+los datos existentes): en anularPorVenta, calcular el saldo ANTES del
+updateMany. Cambio de 2 lineas (mover linea 178 antes de la 164):
+
+  const saldoAntes = await obtenerSaldoCliente(clienteId);
+  const resultado = await MovimientoCuenta.updateMany(
+    { venta: ventaId, tipoMovimiento: "VENTA_FIADA", estado: "ACTIVO" },
+    { $set: { estado: "ANULADO" } },
+    session ? { session } : undefined,
+  );
+  const exceso = Math.max(0, Number(montoVenta || 0) - saldoAntes);
+  // ...resto igual (crear REVERSO_ABONO si exceso > 0)
+
+Resultado en los 3 escenarios: sin abono -> sin REV, saldo 0; abono parcial ->
+REV = abono, saldo 0; abono total -> REV = abono, saldo 0; con deudas activas
+-> el abono se reparte contra la deuda activa y solo se reversa el sobrante.
+Es consistente con los 4 REVERSO_ABONO ya existentes en la base (no habria que
+tocarlos).
+
+OPCION B (semantica de credito): eliminar la creacion de REVERSO_ABONO en
+anularPorVenta; solo anular los VF. El saldo queda con el abono como credito
+(saldo negativo). Requiere: (1) decidir que hacer con los 4 REVERSO existentes
+(marcarlos ANULADO para que no cuenten, manteniendolos como registro historico),
+(2) actualizar cualquier vista/UI que muestre REVERSO_ABONO como deuda. Mas
+simple de entender, pero cambia el comportamiento historico y la interpretacion
+de la base.
+
+En ambos casos conviene: validar montoVenta > 0 antes del calculo, y una nota
+en el codigo explicando que el saldo debe leerse ANTES de anular (evita
+regresiones como esta).
+
+La causa de la regression probable: la linea del updateMany se inserto antes
+del calculo en una refactorizacion (esta en HEAD, sin diff local).
+
+
+8. PROPUESTA DE SANEAMIENTO DE DATOS
+------------------------------------
+Con OPCION A (recomendada): NO se requiere ningun saneamiento de movimientos.
+La base ya es coherente con el codigo corregido. Solo se sugiere, en una fase
+posterior y con decision del negocio, una limpieza GENERAL de datos de prueba
+(no relacionada con este bug):
+  - 51 productos con codigos TEST-* / TMP-BAR-*,
+  - clientes de prueba ("Cliente Prueba Fiado" duplicado x2, "Cliente Expo
+    Test", "[TEST] Cliente Fiado", "vieja culea"),
+  - usuario "vendedor1" (Vendedor Test),
+  - venta V#18 (fiado sin cliente),
+  - borradores huerfanos V#6, V#10, V#11, y los 4 BORRADOR generales.
+
+Con OPCION B: marcar los 4 REVERSO_ABONO como ANULADO (nunca borrarlos), lo que
+convertiria los saldos de FIA Cliente A, FIA Parcial A, FIA Parcial A2 y Cliente
+Focal Abono Parcial en creditos (-$1.000/-$1.000/-$1.500/-$1.000). Esto debe
+hacerse SOLO si el negocio confirma que esos abonos se devuelven en efectivo y
+deben quedar como credito.
+
+Cualquier saneamiento debe: ejecutarse en una transaccion, con backup previo
+(mongodump), con script idempotente y aprobado, y registrar en observacion de
+cada movimiento el motivo y el usuario que lo ejecuto.
+
+
+9. QUE DATOS NO DEBEN TOCARSE
+-----------------------------
+- Los 4 movimientos REVERSO_ABONO existentes: NO borrarlos. Son coherentes con
+  el historial (cada uno = abono revertido) y son evidencia de la transaccion.
+- Los movimientos VENTA_FIADA (activos y anulados): NO tocarlos; cada venta
+  tiene exactamente 1 y su estado coincide con el de la venta.
+- Los ABONO existentes: NO tocarlos.
+- Las ventas (confirmadas, anuladas y borradores): NO borrarlas ni anularlas
+  extra; los borradores y V#18 pueden limpiarse solo en una fase aparte y
+  aprobada.
+- Los clientes: NO borrarlos; "vieja culea" y demas solo en limpieza aprobada.
+- El limiteFiado de los clientes: NO modificarlo (es configuracion de negocio).
+- La secuencia de ventas (valorActual 49): NO resetearla.
+- Los productos: NO tocarlos en el contexto de este bug.
+
+
+10. RIESGOS DE EJECUTAR EL SANEAMIENTO
+--------------------------------------
+- Riesgo de empeorar saldos: un script "a ciegas" que marque REVERSO_ABONO
+  como ANULADO (opcion B) crea creditos a favor de clientes que podrian
+  reclamarse en efectivo; si el negocio no confirma la devolucion, se pierde
+  plata real.
+- Riesgo de borrado: si se "limpian" los REVERSO_ABONO considerandolos basura
+  (sugerencia original del informe anterior, ya descartada), el historial de
+  abonos revertidos desaparece y los saldos de 4 clientes cambian sin rastro.
+- Riesgo de doble correccion: aplicar el fix de codigo Y ademas "saneamiento"
+  de saldos duplicaria el efecto (los datos ya son correctos bajo opcion A).
+- Riesgo de inconsistencia si se corrige solo el codigo pero se ejecuta el
+  saneamiento B: los clientes quedarian con creditos que la UI mostraria como
+  saldo negativo (listarCuentasPorCobrar ya los excluye si saldo <= 0, pero
+  Clientes.jsx mostraria el saldo).
+- Riesgo operacional: sin backup, sin transaccion, sin aprobacion -> perdida
+  irreparable de historia de cobranza.
+- Riesgo de confundir "saldo actual" con "deuda real": si se corre una
+  correccion basada en la tabla de la seccion 6 asumiendo que hay diferencias
+  ($0), no hay nada que corregir en datos; solo codigo.
+- Riesgo futuro: si se corrige solo la base (p.ej. recomputando saldos) y no
+  el codigo, la proxima anulacion con abonos volvera a generar deuda fantasma
+  (esta vez con montos M + A).
+
+
+11. CONCLUSION
+--------------
+- Causa raiz: orden de operaciones en anularPorVenta (saldo leido DESPUES de
+  marcar VENTA_FIADA como ANULADO), lo que infla el REVERSO_ABONO de A a M + A
+  y deja deuda fantasma por el total de la venta anulada.
+- Datos actuales: CONSISTENTES (los 4 REVERSO_ABONO = abonos, generados por la
+  version correcta; todos los saldos coinciden con el calculo del sistema). Se
+  corrige la afirmacion del informe anterior sobre saldos invertidos (error de
+  signo del script de analisis, no de los datos).
+- Accion requerida: corregir el CODIGO (opcion A, mover una linea). Sin
+  saneamiento de movimientos.
+- Proximos pasos sugeridos (a la espera de instrucciones): aplicar el fix,
+  verificar con una venta fiada de prueba en un entorno separado, y decidir la
+  limpieza general de datos de prueba.
+
+Verificaciones de cierre:
+- git status: SIN cambios respecto al baseline (misma lista de modificados y
+  untracked; sin archivos nuevos en el repositorio).
+- Codigo: NO se modifico ningun archivo.
+- MongoDB: solo consultas de lectura (count/find/aggregate); cero escrituras.
+- Los scripts de analisis se guardaron fuera del repositorio
+  (C:\Users\statu\AppData\Local\Temp\opencode\).
+- Sin commit, sin push.

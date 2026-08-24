@@ -1,5 +1,6 @@
 import Client from "../models/clientModel.js";
 import MovimientoCuenta from "../models/movimientoCuentaModel.js";
+import Venta from "../models/ventaModel.js";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -143,15 +144,19 @@ export async function actualizar(id, data) {
 }
 
 export async function eliminar(id) {
-  const movimientos = await MovimientoCuenta.countDocuments({ cliente: id });
-  if (movimientos > 0) {
+  const [movimientos, ventas] = await Promise.all([
+    MovimientoCuenta.countDocuments({ cliente: id }),
+    Venta.countDocuments({ cliente: id }),
+  ]);
+
+  if (movimientos > 0 || ventas > 0) {
     const err = new Error(
-      "No se puede eliminar un cliente con movimientos. Desactívalo en su lugar.",
+      "No se puede eliminar un cliente con historial. Desactívalo en su lugar.",
     );
     err.errores = [
-      "No se puede eliminar un cliente con movimientos. Desactívalo en su lugar.",
+      `El cliente tiene ${movimientos} movimiento(s) de cuenta y ${ventas} venta(s) registradas. Desactívalo en lugar de eliminarlo.`,
     ];
-    err.status = 400;
+    err.status = 409;
     throw err;
   }
 

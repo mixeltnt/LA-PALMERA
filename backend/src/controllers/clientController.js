@@ -16,7 +16,9 @@ export async function getClientById(req, res) {
     res.json(cliente);
   } catch (error) {
     const status = error.message === "Cliente no encontrado." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -45,7 +47,9 @@ export async function updateClient(req, res) {
         .json({ mensaje: "Datos inválidos.", errores: error.errores });
     }
     const status = error.message === "Cliente no encontrado." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -54,8 +58,15 @@ export async function deleteClient(req, res) {
     await clientService.eliminar(req.params.id);
     res.json({ mensaje: "Cliente eliminado correctamente." });
   } catch (error) {
+    if (error.errores) {
+      return res
+        .status(error.status || 400)
+        .json({ mensaje: error.message, errores: error.errores });
+    }
     const status = error.message === "Cliente no encontrado." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -84,7 +95,9 @@ export async function getClientMovimientos(req, res) {
   } catch (error) {
     const status =
       error.message === "Cliente no encontrado." ? 404 : error.status || 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
@@ -96,7 +109,9 @@ export async function getClienteSaldo(req, res) {
     res.json(data);
   } catch (error) {
     const status = error.message === "Cliente no encontrado." ? 404 : 500;
-    res.status(status).json({ mensaje: error.message });
+    res.status(status).json({
+      mensaje: status === 500 ? "Error interno del servidor." : error.message,
+    });
   }
 }
 
