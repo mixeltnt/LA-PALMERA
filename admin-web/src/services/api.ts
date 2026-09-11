@@ -4,9 +4,15 @@ const STORAGE_TOKEN_KEY = "lapalmera_admin_token";
 const STORAGE_USER_KEY = "lapalmera_admin_user";
 
 export function getBaseApiUrl(): string {
-  const saved = localStorage.getItem(STORAGE_URL_KEY);
-  if (saved && saved.trim()) {
-    return saved.trim().replace(/\/+$/, "");
+  if (typeof window !== "undefined") {
+    const saved = localStorage.getItem(STORAGE_URL_KEY);
+    if (saved && saved.trim()) {
+      return saved.trim().replace(/\/+$/, "");
+    }
+    // Si corre en la nube (Render / producción), usar el mismo origen
+    if (window.location.hostname && !window.location.hostname.includes("localhost") && !window.location.hostname.includes("127.0.0.1")) {
+      return `${window.location.origin}/api`;
+    }
   }
   return "http://localhost:4000/api";
 }
@@ -14,7 +20,7 @@ export function getBaseApiUrl(): string {
 export function setBaseApiUrl(url: string): void {
   let clean = url.trim().replace(/\/+$/, "");
   if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
-    clean = `http://${clean}`;
+    clean = `https://${clean}`;
   }
   if (!clean.endsWith("/api")) {
     clean = `${clean}/api`;
