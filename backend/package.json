@@ -8,6 +8,7 @@
     "start": "node ./src/server.js",
     "dev": "nodemon ./src/server.js",
     "seed:usuarios": "node ./scripts/seedUsers.js",
+    "reset:entrega": "node ./scripts/resetParaEntrega.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
