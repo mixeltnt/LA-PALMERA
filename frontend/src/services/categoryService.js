@@ -1,13 +1,47 @@
-import api from "./api";
+import { categoryRepository } from "../database/repositories/catalogRepository";
 
 export const categoryService = {
-  listar: (params = {}) => api.get(`/categorias?${new URLSearchParams(params)}`),
-  listarTodas: () => api.get("/categorias?todas=true"),
-  obtener: (id) => api.get(`/categorias/${id}`),
-  crear: (data) => api.post("/categorias", data),
-  actualizar: (id, data) => api.put(`/categorias/${id}`, data),
-  eliminar: (id) => api.delete(`/categorias/${id}`),
-  stats: () => api.get("/categorias/stats"),
+  listar: async () => {
+    try {
+      const cats = await categoryRepository.list();
+      const categorias = cats.map((c) => ({
+        ...c,
+        _id: String(c.id),
+      }));
+      return { categorias };
+    } catch (e) {
+      console.error("[categoryService] Error listando categorías en SQLite:", e);
+      return { categorias: [] };
+    }
+  },
+
+  listarTodas: async () => {
+    const res = await categoryService.listar();
+    return res.categorias || [];
+  },
+
+  stats: async () => {
+    const cats = await categoryRepository.list();
+    return {
+      total: cats.length,
+      activas: cats.length,
+    };
+  },
+
+  crear: async (data) => {
+    const cat = await categoryRepository.create(data);
+    return { categoria: { ...cat, _id: String(cat.id) }, mensaje: "Categoría creada localmente" };
+  },
+
+  actualizar: async (id, data) => {
+    const cat = await categoryRepository.update(id, data);
+    return { categoria: { ...cat, _id: String(cat.id) }, mensaje: "Categoría actualizada localmente" };
+  },
+
+  eliminar: async (id) => {
+    await categoryRepository.delete(id);
+    return { mensaje: "Categoría eliminada" };
+  },
 };
 
 export default categoryService;

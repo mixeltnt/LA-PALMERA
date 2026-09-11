@@ -1,5 +1,22 @@
 @import "bootstrap-icons/font/bootstrap-icons.css";
 
+/* Desactivar botón nativo de revelar/limpiar contraseña en navegadores Edge, Chrome y WebView2 */
+input::-ms-reveal,
+input::-ms-clear,
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+input::-webkit-credentials-auto-fill-button {
+  visibility: hidden !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  right: 0 !important;
+}
+
 /* ============================================================
    SISTEMA DE TEMAS — LA PALMERA
    Variables centrales de diseño. El modo oscuro se activa con
@@ -480,4 +497,113 @@ body,
 [data-theme="dark"] .page-item.active .page-link {
   background-color: var(--lp-primary);
   border-color: var(--lp-primary);
+}
+
+/* ============================================================
+   AJUSTES RESPONSIVOS DE TABLAS
+   ============================================================ */
+@media (max-width: 768px) {
+  /* Tablas: Con scroll suave */
+  .table-responsive {
+    display: block !important;
+    width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    border-radius: 12px !important;
+    border: 1px solid var(--lp-border) !important;
+    background: var(--lp-surface) !important;
+    margin-bottom: 1rem !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04) !important;
+  }
+
+  .table {
+    margin-bottom: 0 !important;
+    min-width: 580px !important;
+  }
+
+  .table th {
+    white-space: nowrap !important;
+    font-size: 0.8rem !important;
+    font-weight: 700 !important;
+    padding: 10px 12px !important;
+    background-color: var(--lp-surface-alt) !important;
+    color: var(--lp-text) !important;
+    border-bottom: 2px solid var(--lp-border) !important;
+  }
+
+  .table td {
+    white-space: nowrap !important;
+    font-size: 0.82rem !important;
+    padding: 10px 12px !important;
+    vertical-align: middle !important;
+  }
+
+  /* 5. Ajustes ergonómicos de tarjetas en móvil */
+  .card {
+    border-radius: 12px !important;
+    margin-bottom: 12px;
+  }
+
+  /* 6. Encabezados y títulos compactos */
+  h1, .h1 { font-size: 1.35rem !important; }
+  h2, .h2 { font-size: 1.25rem !important; }
+  h3, .h3 { font-size: 1.15rem !important; }
+  h4, .h4 { font-size: 1.05rem !important; }
+
+  /* 7. Botones táctiles cómodos */
+  .btn {
+    padding: 0.5rem 0.85rem;
+    font-size: 0.88rem;
+    border-radius: 8px;
+  }
+
+  .btn-sm {
+    padding: 0.35rem 0.65rem;
+    font-size: 0.78rem;
+  }
+
+  /* 8. Modales a pantalla completa / adaptables en móviles */
+  .modal-dialog {
+    margin: 0.5rem auto !important;
+    max-width: calc(100vw - 1rem) !important;
+  }
+
+  .modal-content {
+    border-radius: 16px !important;
+    max-height: 88vh !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  .modal-body {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 1rem !important;
+  }
+
+  /* 9. Desplegables (Dropdowns) y selectores responsivos */
+  .dropdown-menu {
+    max-width: 92vw !important;
+    border-radius: 12px !important;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.18) !important;
+    z-index: 1070 !important;
+  }
+
+  /* 10. Formularios en modales: columnas se apilan limpiamente en móvil */
+  .modal-body .row > [class*="col-"] {
+    margin-bottom: 0.4rem;
+  }
+
+  /* 11. Botones de acción y barras de herramientas móviles */
+  .btn-group, .input-group {
+    flex-wrap: nowrap;
+  }
+
+  /* 12. Diálogos de confirmación flotantes */
+  .modal.d-block {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0.5rem !important;
+  }
 }

@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: lapalmera-pos-api
+    runtime: node
+    plan: free
+    region: ohio
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false
+      - key: API_KEY
+        value: palmera_pos_secret_sync_key_2026
+      - key: JWT_SECRET
+        generateValue: true
+      - key: YASNA_PASSWORD
+        value: Carlos1941
+      - key: KARLA_PASSWORD
+        value: Karla2004
+      - key: VENDEDOR_PASSWORD
+        value: Palmera2026

@@ -1,0 +1,6 @@
+﻿{
+  "appId": "cl.lapalmera.pos",
+  "appName": "La Palmera",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}

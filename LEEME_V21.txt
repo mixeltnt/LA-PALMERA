@@ -1,0 +1,28 @@
+================================================================================
+           🌴 LA PALMERA POS - VERSIÓN 21 (v21.0.0) 🌴
+           Sistema Integral de Punto de Venta & Abastecimiento
+================================================================================
+
+NOVEDADES Y CORRECCIONES DE LA VERSIÓN 21:
+
+1. 🖼️ SOLUCIÓN A IMÁGENES URL EN PRODUCTOS:
+   - Corrección completa del guardado y renderizado de enlaces e imágenes (URLs).
+   - Ahora al editar cualquier producto y pegar un enlace de imagen (Walmart, Google, etc.), se almacena de inmediato en la base de datos local SQLite y se visualiza tanto en la lista como en el catálogo.
+
+2. 🖥️ CONTROL DE PANTALLA COMPLETA Y TECLA ESCAPE CORREGIDA:
+   - Se desacopló la tecla ESC del modo ventana: presionar ESC ahora cancela acciones o cierra modales sin salir de la pantalla completa.
+   - Modo Pantalla Completa controlado por tecla F11 o mediante el nuevo botón directo en la barra superior (Navbar).
+   - Máxima estabilidad sin desconfigurar la vista al maximizar o cerrar ventanas.
+
+3. 💳 MÉTODO DE PAGO "TRANSFERENCIA" AGREGADO:
+   - Nuevo botón de pago directo "Transf." (Transferencia Bancaria) en la pantalla de Ventas.
+   - Atajo de teclado rápido F4 para seleccionar Transferencia al instante.
+   - Registro en estadísticas de caja, historial de ventas y emisión de tickets.
+
+4. 🚀 INSTALADOR Y ACCESO DIRECTO LISTO:
+   - Ejecutable nativo optimizado v21 de alta velocidad.
+   - Scripts de instalación rápida con 1 clic en el Escritorio.
+
+================================================================================
+Desarrollado con ❤️ para Minimarket La Palmera por MixelTNT • 2026
+================================================================================

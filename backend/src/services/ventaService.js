@@ -209,12 +209,20 @@ export async function listar(filtros = {}) {
 }
 
 export async function obtenerPorId(id) {
-  const venta = await Venta.findById(id)
-    .populate("cliente", "nombre rut")
-    .populate("usuario", "nombre usuario");
+  let venta = null;
+  if (mongoose.isValidObjectId(id)) {
+    venta = await Venta.findById(id)
+      .populate("cliente", "nombre rut")
+      .populate("usuario", "nombre usuario");
+  } else if (!isNaN(Number(id))) {
+    venta = await Venta.findOne({ numeroVenta: Number(id) })
+      .populate("cliente", "nombre rut")
+      .populate("usuario", "nombre usuario");
+  }
+
   if (!venta) throw new Error("Venta no encontrada.");
 
-  const detalles = await DetalleVenta.find({ venta: id }).populate(
+  const detalles = await DetalleVenta.find({ venta: venta._id }).populate(
     "producto",
     "codigo nombre precioCompra precioVenta stockActual activo",
   );

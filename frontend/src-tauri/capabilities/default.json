@@ -1,0 +1,62 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permisos completos para La Palmera POS Desktop",
+  "windows": [
+    "main",
+    "*"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-set-decorations",
+    "core:window:allow-set-focus",
+    "core:window:allow-destroy",
+    "core:event:default",
+    "sql:default",
+    "sql:allow-load",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "sql:allow-close",
+    "fs:default",
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [{ "path": "C:\\LaPalmera\\**" }, { "path": "C:\\Users\\**" }, { "path": "$HOME\\**" }]
+    },
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [{ "path": "C:\\LaPalmera\\**" }, { "path": "C:\\Users\\**" }, { "path": "$HOME\\**" }]
+    },
+    {
+      "identifier": "fs:allow-copy-file",
+      "allow": [{ "path": "C:\\LaPalmera\\**" }, { "path": "C:\\Users\\**" }, { "path": "$HOME\\**" }]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [{ "path": "C:\\LaPalmera\\**" }, { "path": "C:\\Users\\**" }, { "path": "$HOME\\**" }]
+    },
+    {
+      "identifier": "fs:allow-mkdir",
+      "allow": [{ "path": "C:\\LaPalmera\\**" }, { "path": "C:\\Users\\**" }, { "path": "$HOME\\**" }]
+    },
+    {
+      "identifier": "fs:allow-read-dir",
+      "allow": [{ "path": "C:\\LaPalmera\\**" }, { "path": "C:\\Users\\**" }, { "path": "$HOME\\**" }]
+    },
+    {
+      "identifier": "fs:allow-remove",
+      "allow": [{ "path": "C:\\LaPalmera\\**" }, { "path": "C:\\Users\\**" }, { "path": "$HOME\\**" }]
+    },
+    "dialog:default",
+    "shell:default",
+    "notification:default",
+    "process:default"
+  ]
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">La Palmera</string>
+    <string name="title_activity_main">La Palmera</string>
+    <string name="package_name">cl.lapalmera.pos</string>
+    <string name="custom_url_scheme">cl.lapalmera.pos</string>
+</resources>

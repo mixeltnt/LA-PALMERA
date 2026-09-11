@@ -1,0 +1,36 @@
+================================================================================
+           🌴 LA PALMERA POS - VERSIÓN 19 (v19.0.0) 🌴
+================================================================================
+
+NOVEDADES Y MEJORAS DE LA VERSIÓN 19:
+
+1. 🔄 RESTABLECER DATOS DE FÁBRICA (DESDE CERO):
+   - Se incorporó en el módulo de Configuración la función oficial para
+     restablecer el sistema a valores de fábrica.
+   - Ideal para realizar pruebas integrales (crear clientes, productos, ventas,
+     compras, movimientos de caja e inventario) y luego dejar la base de datos
+     100% limpia desde cero lista para la operación real del negocio.
+   - Cuenta con confirmación protegida por Contraseña de Seguridad
+     (Mixeltnt2012) para evitar borrados accidentales.
+   - Conserva los accesos administrativos principales (Yasna, Karla, Ventas)
+     y las categorías base del minimarket.
+
+2. 👁️ CORRECCIÓN DE DOBLE OJO EN CONTRASEÑA DE LOGIN:
+   - Se eliminó el icono duplicado del navegador nativo (WebView2 / Edge) en
+     los campos de contraseña del Login.
+   - Ahora se muestra exclusivamente el icono único y elegante del sistema
+     para alternar entre ocultar y ver contraseña de forma fluida.
+
+3. ⚡ OPTIMIZACIÓN Y ACTUALIZACIÓN INTEGRAL v19:
+   - Compilación nativa optimizada para Windows.
+   - Interfaz con identificador visual actualizado a la Versión 19.
+
+================================================================================
+USUARIOS Y CONTRASEÑAS POR DEFECTO:
+================================================================================
+- Cajero Rápido: Botón directo "⚡ Abrir Punto de Venta / Caja" (Sin contraseña)
+- Yasna (Administradora): Carlos1941
+- Karla (Supervisora): Karla2004
+- Clave de Seguridad Restablecimiento de Fábrica: Mixeltnt2012
+================================================================================
+Desarrollado por MixelTNT

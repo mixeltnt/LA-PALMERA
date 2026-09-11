@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import clientService from "../../services/clientService";
+import { formatRut, validarRut } from "../../utils/validators";
 
 const TIPO_MOVIMIENTO_LABELS = {
   VENTA_FIADA: "Venta fiada",
@@ -47,6 +48,7 @@ function Clientes() {
   const [showAbono, setShowAbono] = useState(false);
   const [abonoForm, setAbonoForm] = useState({ monto: "", observacion: "" });
   const [savingAbono, setSavingAbono] = useState(false);
+  const [voucherAbono, setVoucherAbono] = useState(null);
 
   const [cuentas, setCuentas] = useState([]);
   const [resumenCuentas, setResumenCuentas] = useState({
@@ -56,6 +58,40 @@ function Clientes() {
   const [loadingCuentas, setLoadingCuentas] = useState(false);
 
   const [toast, setToast] = useState(null);
+
+  // Estado para arrastrar y mover libremente la ventana modal
+  const [modalPos, setModalPos] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  const handleMouseDown = (e) => {
+    if (e.target.closest("button") || e.target.closest("input") || e.target.closest("select")) return;
+    setIsDragging(true);
+    setDragStart({
+      x: e.clientX - modalPos.x,
+      y: e.clientY - modalPos.y,
+    });
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isDragging) return;
+      setModalPos({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y,
+      });
+    };
+    const handleMouseUp = () => setIsDragging(false);
+
+    if (isDragging) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging, dragStart]);
 
   const buildParams = useCallback(() => {
     const params = { page, limit: 10 };
@@ -117,6 +153,7 @@ function Clientes() {
     setEditing(null);
     setForm(emptyForm);
     setError("");
+    setModalPos({ x: 0, y: 0 });
     setShowModal(true);
   };
 
@@ -135,14 +172,16 @@ function Clientes() {
       activo: cliente.activo !== undefined ? cliente.activo : true,
     });
     setError("");
+    setModalPos({ x: 0, y: 0 });
     setShowModal(true);
   };
 
   const handleFormChange = (e) => {
     const { name, value, type, checked } = e.target;
+    const finalVal = name === "rut" ? formatRut(value) : (type === "checkbox" ? checked : value);
     setForm((prev) => ({
       ...prev,
-      [name]: type === "checkbox" ? checked : value,
+      [name]: finalVal,
     }));
     setError("");
   };
@@ -151,7 +190,11 @@ function Clientes() {
     const errores = [];
     if (!form.nombre.trim())
       errores.push("El nombre del cliente es obligatorio.");
-    if (!form.rut.trim()) errores.push("El RUT del cliente es obligatorio.");
+    if (!form.rut.trim()) {
+      errores.push("El RUT del cliente es obligatorio.");
+    } else if (!validarRut(form.rut)) {
+      errores.push("El RUT ingresado no es válido (ej: 12.345.678-5).");
+    }
     if (form.email && form.email.trim()) {
       const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!re.test(form.email.trim()))
@@ -173,7 +216,7 @@ function Clientes() {
     setSaving(true);
     try {
       if (editing) {
-        await clientService.actualizar(editing._id, form);
+        await clientService.actualizar(editing._id || editing.id, form);
         setToast({
           type: "success",
           text: "Cliente actualizado correctamente.",
@@ -259,11 +302,24 @@ function Clientes() {
     }
     setSavingAbono(true);
     try {
-      await clientService.registrarAbono(cuentaCliente._id, {
+      const idCliente = cuentaCliente._id || cuentaCliente.id;
+      const ant = Number(saldoPendiente) || 0;
+      const rest = Math.max(0, ant - monto);
+      await clientService.registrarAbono(idCliente, {
         monto,
         observacion: abonoForm.observacion,
       });
       setShowAbono(false);
+      setVoucherAbono({
+        clienteNombre: cuentaCliente.nombre,
+        clienteRut: cuentaCliente.rut || "—",
+        clienteTelefono: cuentaCliente.telefono || "—",
+        deudaAnterior: ant,
+        montoAbonado: monto,
+        saldoRestante: rest,
+        observacion: abonoForm.observacion || "Abono a cuenta corriente",
+        fecha: new Date().toISOString(),
+      });
       setToast({
         type: "success",
         text: "Abono registrado correctamente.",
@@ -297,9 +353,9 @@ function Clientes() {
     <div>
       <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
         <div>
-          <h3 className="fw-bold mb-1">Clientes</h3>
+          <h3 className="fw-bold mb-1">Clientes (Fiados)</h3>
           <p className="text-muted small mb-0">
-            Gestión de clientes. Total: {total}
+            Gestión de clientes, cuentas corrientes y fiados. Total: {total}
           </p>
         </div>
         <button className="btn btn-success" onClick={openCreate}>
@@ -343,6 +399,7 @@ function Clientes() {
                     <th className="text-end">Límite</th>
                     <th className="text-end">Deuda pendiente</th>
                     <th className="text-end">Disponible</th>
+                    <th className="text-center" style={{ width: 100 }}>Acción</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -365,6 +422,24 @@ function Clientes() {
                       </td>
                       <td className="text-end text-nowrap">
                         {formatMoney(cuenta.disponible)}
+                      </td>
+                      <td className="text-center">
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-success py-0 px-2"
+                          onClick={() => {
+                            const found = clientes.find((c) => String(c._id || c.id) === String(cuenta.cliente || cuenta.id)) || {
+                              _id: cuenta.cliente || cuenta.id,
+                              id: cuenta.cliente || cuenta.id,
+                              nombre: cuenta.nombre,
+                              rut: cuenta.rut,
+                              limiteFiado: cuenta.limiteFiado,
+                            };
+                            abrirCuenta(found);
+                          }}
+                        >
+                          <i className="bi bi-wallet2 me-1"></i>Abonar
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -558,25 +633,38 @@ function Clientes() {
         <div
           className="modal d-block"
           tabIndex={-1}
-          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
         >
-          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title fw-bold">
+          <div
+            className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable shadow-lg"
+            style={{
+              transform: `translate(${modalPos.x}px, ${modalPos.y}px)`,
+              transition: isDragging ? "none" : "transform 0.1s ease",
+            }}
+          >
+            <div className="modal-content shadow border-0" style={{ maxHeight: "88vh" }}>
+              <div
+                className="modal-header bg-light border-bottom py-2"
+                onMouseDown={handleMouseDown}
+                style={{ cursor: isDragging ? "grabbing" : "grab", userSelect: "none" }}
+              >
+                <h5 className="modal-title fw-bold text-dark mb-0">
                   <i
-                    className={`bi ${editing ? "bi-pencil" : "bi-person-plus"} me-2`}
+                    className={`bi ${editing ? "bi-pencil" : "bi-person-plus"} me-2 text-success`}
                   ></i>
                   {editing ? "Editar Cliente" : "Nuevo Cliente"}
                 </h5>
+                <span className="badge bg-secondary-subtle text-secondary ms-2 small d-none d-sm-inline py-1">
+                  <i className="bi bi-arrows-move me-1"></i>Mover ventana
+                </span>
                 <button
                   type="button"
-                  className="btn-close"
+                  className="btn-close ms-auto"
                   onClick={() => setShowModal(false)}
                 ></button>
               </div>
               <form onSubmit={handleSubmit} noValidate>
-                <div className="modal-body">
+                <div className="modal-body" style={{ maxHeight: "68vh", overflowY: "auto" }}>
                   {error && (
                     <div className="alert alert-danger py-2 small">{error}</div>
                   )}
@@ -797,22 +885,37 @@ function Clientes() {
         <div
           className="modal d-block"
           tabIndex={-1}
-          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
         >
-          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title fw-bold">Cuenta del cliente</h5>
+          <div
+            className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable shadow-lg"
+            style={{
+              transform: `translate(${modalPos.x}px, ${modalPos.y}px)`,
+              transition: isDragging ? "none" : "transform 0.1s ease",
+            }}
+          >
+            <div className="modal-content shadow border-0" style={{ maxHeight: "88vh" }}>
+              <div
+                className="modal-header bg-light border-bottom py-2"
+                onMouseDown={handleMouseDown}
+                style={{ cursor: isDragging ? "grabbing" : "grab", userSelect: "none" }}
+              >
+                <h5 className="modal-title fw-bold text-dark mb-0">
+                  <i className="bi bi-wallet2 me-2 text-primary"></i>Cuenta del cliente
+                </h5>
+                <span className="badge bg-secondary-subtle text-secondary ms-2 small d-none d-sm-inline py-1">
+                  <i className="bi bi-arrows-move me-1"></i>Mover ventana
+                </span>
                 <button
                   type="button"
-                  className="btn-close"
+                  className="btn-close ms-auto"
                   onClick={() => setShowCuenta(false)}
                 ></button>
               </div>
-              <div className="modal-body">
+              <div className="modal-body" style={{ maxHeight: "72vh", overflowY: "auto" }}>
                 <div className="d-flex justify-content-between align-items-start mb-3">
                   <div>
-                    <div className="fw-semibold">{cuentaCliente.nombre}</div>
+                    <div className="fw-semibold fs-5">{cuentaCliente.nombre}</div>
                     <div className="text-muted small">{cuentaCliente.rut}</div>
                   </div>
                   <button
@@ -1023,6 +1126,138 @@ function Clientes() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {voucherAbono && (
+        <div
+          className="modal d-block"
+          tabIndex={-1}
+          style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered" style={{ maxWidth: "420px" }}>
+            <div className="modal-content border-0 shadow-lg">
+              <div className="modal-header bg-success text-white py-2">
+                <h6 className="modal-title fw-bold mb-0 d-flex align-items-center gap-2">
+                  <i className="bi bi-receipt"></i>
+                  Comprobante de Abono Térmico
+                </h6>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() => setVoucherAbono(null)}
+                ></button>
+              </div>
+              <div className="modal-body p-4" id="voucher-abono-printable" style={{ fontFamily: "monospace", fontSize: "13px" }}>
+                <div className="text-center border-bottom pb-2 mb-3">
+                  <h5 className="fw-bold mb-1" style={{ letterSpacing: "1px" }}>MINIMARKET LA PALMERA</h5>
+                  <p className="text-muted small mb-0">RUT: 76.123.456-7</p>
+                  <p className="text-muted small mb-0">COMPROBANTE DE ABONO A CUENTA</p>
+                </div>
+
+                <div className="mb-3">
+                  <div className="d-flex justify-content-between mb-1">
+                    <span className="text-muted">Fecha:</span>
+                    <span>{new Date(voucherAbono.fecha).toLocaleString("es-CL")}</span>
+                  </div>
+                  <div className="d-flex justify-content-between mb-1">
+                    <span className="text-muted">Cliente:</span>
+                    <strong className="text-truncate">{voucherAbono.clienteNombre}</strong>
+                  </div>
+                  {voucherAbono.clienteRut && (
+                    <div className="d-flex justify-content-between mb-1">
+                      <span className="text-muted">RUT:</span>
+                      <span>{voucherAbono.clienteRut}</span>
+                    </div>
+                  )}
+                  {voucherAbono.observacion && (
+                    <div className="d-flex justify-content-between">
+                      <span className="text-muted">Detalle:</span>
+                      <span>{voucherAbono.observacion}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-light p-3 rounded border mb-3">
+                  <div className="d-flex justify-content-between mb-1">
+                    <span>Deuda Anterior:</span>
+                    <span className="fw-semibold">{formatMoney(voucherAbono.deudaAnterior)}</span>
+                  </div>
+                  <div className="d-flex justify-content-between mb-1 text-success">
+                    <span className="fw-bold">Monto Abonado:</span>
+                    <span className="fw-bold">-{formatMoney(voucherAbono.montoAbonado)}</span>
+                  </div>
+                  <div className="d-flex justify-content-between border-top pt-2 mt-2">
+                    <span className="fw-bold">Saldo Restante:</span>
+                    <span className="fw-bold fs-6 text-danger">{formatMoney(voucherAbono.saldoRestante)}</span>
+                  </div>
+                </div>
+
+                <div className="text-center text-muted small border-top pt-2">
+                  <p className="mb-1">¡Gracias por su pago puntual!</p>
+                  <p className="mb-0">Conserve este comprobante para su respaldo.</p>
+                </div>
+              </div>
+              <div className="modal-footer py-2">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary btn-sm"
+                  onClick={() => setVoucherAbono(null)}
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-success btn-sm d-flex align-items-center gap-1"
+                  onClick={() => {
+                    const printWindow = window.open("", "_blank");
+                    if (printWindow) {
+                      printWindow.document.write(`
+                        <html>
+                          <head>
+                            <title>Comprobante de Abono</title>
+                            <style>
+                              body { font-family: 'Courier New', monospace; font-size: 12px; width: 280px; margin: 0 auto; padding: 10px; }
+                              .text-center { text-align: center; }
+                              .fw-bold { font-weight: bold; }
+                              .d-flex { display: flex; justify-content: space-between; margin: 4px 0; }
+                              .border-b { border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 8px; }
+                              .border-t { border-top: 1px dashed #000; padding-top: 8px; margin-top: 8px; }
+                            </style>
+                          </head>
+                          <body onload="window.print(); window.close();">
+                            <div class="text-center border-b">
+                              <h3 style="margin:0;">MINIMARKET LA PALMERA</h3>
+                              <p style="margin:2px 0;">COMPROBANTE DE ABONO</p>
+                              <small>${new Date(voucherAbono.fecha).toLocaleString("es-CL")}</small>
+                            </div>
+                            <div class="border-b">
+                              <div class="d-flex"><span>Cliente:</span><strong>${voucherAbono.clienteNombre}</strong></div>
+                              ${voucherAbono.clienteRut ? `<div class="d-flex"><span>RUT:</span><span>${voucherAbono.clienteRut}</span></div>` : ''}
+                              <div class="d-flex"><span>Detalle:</span><span>${voucherAbono.observacion || 'Abono a cuenta'}</span></div>
+                            </div>
+                            <div>
+                              <div class="d-flex"><span>Deuda Anterior:</span><span>${formatMoney(voucherAbono.deudaAnterior)}</span></div>
+                              <div class="d-flex fw-bold"><span>Monto Abonado:</span><span>-${formatMoney(voucherAbono.montoAbonado)}</span></div>
+                              <div class="d-flex fw-bold border-t" style="font-size:14px;"><span>Saldo Actual:</span><span>${formatMoney(voucherAbono.saldoRestante)}</span></div>
+                            </div>
+                            <div class="text-center border-t" style="margin-top:12px;">
+                              <p style="margin:2px 0;">¡Gracias por su abono!</p>
+                            </div>
+                          </body>
+                        </html>
+                      `);
+                      printWindow.document.close();
+                    } else {
+                      window.print();
+                    }
+                  }}
+                >
+                  <i className="bi bi-printer me-1"></i>Imprimir Voucher
+                </button>
+              </div>
             </div>
           </div>
         </div>

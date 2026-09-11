@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import productService from "../../services/productService";
 import categoryService from "../../services/categoryService";
 import providerService from "../../services/providerService";
+import { compressImage } from "../../utils/imageCompressor";
 
 const emptyForm = {
   codigo: "",
@@ -37,10 +38,34 @@ function Productos() {
 
   const [deleteId, setDeleteId] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [toast, setToast] = useState(null);
   const [categorias, setCategorias] = useState([]);
   const [proveedores, setProveedores] = useState([]);
+
+  // Estados de carga de imagen
+  const [compressingPhoto, setCompressingPhoto] = useState(false);
+  const fileCameraInputRef = useRef(null);
+  const fileGalleryInputRef = useRef(null);
+
+  const handlePhotoSelected = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setCompressingPhoto(true);
+      const dataUrl = await compressImage(file, 600, 0.75);
+      setForm((prev) => ({ ...prev, imagen: dataUrl }));
+    } catch (err) {
+      console.error("Error al procesar foto:", err);
+      alert("No se pudo procesar la imagen seleccionada.");
+    } finally {
+      setCompressingPhoto(false);
+      if (e.target) e.target.value = "";
+    }
+  };
 
   useEffect(() => {
     categoryService
@@ -118,7 +143,7 @@ function Productos() {
       stockActual: producto.stockActual ?? "",
       stockMinimo: producto.stockMinimo ?? "",
       unidadMedida: producto.unidadMedida || "Unidad",
-      imagen: producto.imagen || "",
+      imagen: producto.imagen || producto.imagenUrl || "",
       activo: producto.activo !== undefined ? producto.activo : true,
     });
     setError("");
@@ -176,7 +201,14 @@ function Productos() {
       setShowModal(false);
       cargar();
     } catch (err) {
-      setError(err.message || "Error al guardar producto.");
+      const msg = err.message || "";
+      if (msg.includes("UNIQUE constraint failed: productos.codigo") || msg.includes("ya está en uso")) {
+        setError(`El código "${form.codigo}" ya está registrado en otro producto. Por favor ingresa un código diferente.`);
+      } else if (msg.includes("UNIQUE constraint failed: productos.codigo_barras")) {
+        setError("El código de barras ingresado ya está asignado a otro producto.");
+      } else {
+        setError(msg || "Error al guardar el producto. Verifica los campos.");
+      }
     } finally {
       setSaving(false);
     }
@@ -193,10 +225,48 @@ function Productos() {
       await productService.eliminar(deleteId);
       setShowDeleteConfirm(false);
       setDeleteId(null);
+      setSelectedIds((prev) => prev.filter((id) => String(id) !== String(deleteId)));
       setToast({ type: "success", text: "Producto eliminado correctamente." });
+      await cargar();
+    } catch (err) {
+      setShowDeleteConfirm(false);
+      setDeleteId(null);
+      setToast({ type: "danger", text: err.message || "No se pudo eliminar el producto." });
+    }
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    const currentIds = productos.map((p) => p._id || p.id);
+    const allSelected = currentIds.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds((prev) => prev.filter((id) => !currentIds.includes(id)));
+    } else {
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...currentIds])));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      const res = await productService.eliminarVarios(selectedIds);
+      setShowBulkDeleteConfirm(false);
+      setToast({
+        type: "success",
+        text: res.mensaje || `${selectedIds.length} productos eliminados correctamente.`,
+      });
+      setSelectedIds([]);
       cargar();
-    } catch {
-      // silent
+    } catch (err) {
+      setToast({ type: "danger", text: err.message || "Error al eliminar productos." });
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -219,14 +289,21 @@ function Productos() {
     <div>
       <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
         <div>
-          <h3 className="fw-bold mb-1">Productos</h3>
+          <h3 className="fw-bold mb-1">
+            <i className="bi bi-box-seam-fill text-success me-2"></i>Catálogo de Productos
+          </h3>
           <p className="text-muted small mb-0">
-            Gestión de productos y stock. Total: {total}
+            Consulta, edición de precios y gestión de inventario. Total: {total} productos
           </p>
         </div>
-        <button className="btn btn-success" onClick={openCreate}>
-          <i className="bi bi-plus-lg me-1"></i>Nuevo Producto
-        </button>
+        <div className="d-flex align-items-center gap-2">
+          <span className="badge bg-success-subtle text-success border border-success border-opacity-25 px-3 py-2 small d-none d-sm-inline-flex align-items-center gap-1">
+            <i className="bi bi-truck me-1"></i>El ingreso de nuevos productos y stock se realiza desde <strong>Compras</strong>
+          </span>
+          <a href="/compras" className="btn btn-outline-success btn-sm shadow-sm fw-semibold">
+            <i className="bi bi-plus-lg me-1"></i>Ingresar vía Compras
+          </a>
+        </div>
       </div>
 
       <div className="card border-0 shadow-sm mb-4">
@@ -260,6 +337,34 @@ function Productos() {
         </div>
       </div>
 
+      {selectedIds.length > 0 && (
+        <div className="alert alert-primary d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 shadow-sm py-2 px-3 border-primary animate__animated animate__fadeIn">
+          <div className="d-flex align-items-center gap-2">
+            <i className="bi bi-check2-square fs-5 text-primary"></i>
+            <span>
+              <strong className="fs-6">{selectedIds.length}</strong> producto(s) seleccionado(s)
+            </span>
+          </div>
+          <div className="d-flex gap-2">
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-secondary"
+              onClick={() => setSelectedIds([])}
+            >
+              Deseleccionar todos
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-danger d-flex align-items-center gap-1 shadow-sm"
+              onClick={() => setShowBulkDeleteConfirm(true)}
+            >
+              <i className="bi bi-trash-fill"></i>
+              Eliminar {selectedIds.length} seleccionado(s)
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="card border-0 shadow-sm">
         <div className="card-body p-0">
           {loading ? (
@@ -274,6 +379,20 @@ function Productos() {
                 <table className="table table-hover align-middle mb-0 small">
                   <thead className="table-light">
                     <tr>
+                      <th style={{ width: 42 }} className="text-center">
+                        <input
+                          type="checkbox"
+                          className="form-check-input"
+                          checked={
+                            productos.length > 0 &&
+                            productos.every((p) =>
+                              selectedIds.includes(p._id || p.id)
+                            )
+                          }
+                          onChange={toggleSelectAll}
+                          title="Seleccionar / Deseleccionar todos los visibles"
+                        />
+                      </th>
                       <th style={{ width: 60 }}>Imagen</th>
                       <th>Código</th>
                       <th>Nombre</th>
@@ -290,77 +409,92 @@ function Productos() {
                     </tr>
                   </thead>
                   <tbody>
-                    {productos.map((p) => (
-                      <tr key={p._id}>
-                        <td>
-                          {p.imagen ? (
-                            <img
-                              src={p.imagen}
-                              alt={p.nombre}
-                              style={{
-                                width: 40,
-                                height: 40,
-                                objectFit: "cover",
-                              }}
-                              className="rounded"
+                    {productos.map((p) => {
+                      const pid = p._id || p.id;
+                      const isSelected = selectedIds.includes(pid);
+                      return (
+                        <tr key={pid} className={isSelected ? "table-primary" : ""}>
+                          <td className="text-center">
+                            <input
+                              type="checkbox"
+                              className="form-check-input"
+                              checked={isSelected}
+                              onChange={() => toggleSelect(pid)}
                             />
-                          ) : (
-                            <div
-                              className="d-flex align-items-center justify-content-center rounded bg-light text-secondary"
-                              style={{ width: 40, height: 40 }}
+                          </td>
+                          <td>
+                            {p.imagen || p.imagenUrl ? (
+                              <img
+                                src={p.imagen || p.imagenUrl}
+                                alt={p.nombre}
+                                style={{
+                                  width: 40,
+                                  height: 40,
+                                  objectFit: "cover",
+                                }}
+                                className="rounded shadow-xs"
+                                onError={(e) => {
+                                  e.target.style.display = "none";
+                                }}
+                              />
+                            ) : (
+                              <div
+                                className="d-flex align-items-center justify-content-center rounded bg-light text-secondary"
+                                style={{ width: 40, height: 40 }}
+                              >
+                                <i className="bi bi-image"></i>
+                              </div>
+                            )}
+                          </td>
+                          <td className="fw-semibold">{p.codigo || "—"}</td>
+                          <td className="fw-semibold">{p.nombre}</td>
+                          <td>
+                            {p.categoria?.nombre ||
+                              p.categoriaNombre ||
+                              p.categoria ||
+                              "—"}
+                          </td>
+                          <td>{p.proveedorPrincipal?.nombre || "—"}</td>
+                          <td className="text-end">
+                            {formatPrice(p.precioCompra)}
+                          </td>
+                          <td className="text-end fw-semibold">
+                            {formatPrice(p.precioVenta)}
+                          </td>
+                          <td className="text-center">
+                            {getStockBadge(p.stockActual, p.stockMinimo)}
+                          </td>
+                          <td className="text-center">{p.stockMinimo}</td>
+                          <td>
+                            <span
+                              className={`badge ${p.activo ? "bg-success" : "bg-secondary"}`}
                             >
-                              <i className="bi bi-image"></i>
-                            </div>
-                          )}
-                        </td>
-                        <td className="fw-semibold">{p.codigo || "—"}</td>
-                        <td className="fw-semibold">{p.nombre}</td>
-                        <td>
-                          {p.categoria?.nombre ||
-                            p.categoriaNombre ||
-                            p.categoria ||
-                            "—"}
-                        </td>
-                        <td>{p.proveedorPrincipal?.nombre || "—"}</td>
-                        <td className="text-end">
-                          {formatPrice(p.precioCompra)}
-                        </td>
-                        <td className="text-end fw-semibold">
-                          {formatPrice(p.precioVenta)}
-                        </td>
-                        <td className="text-center">
-                          {getStockBadge(p.stockActual, p.stockMinimo)}
-                        </td>
-                        <td className="text-center">{p.stockMinimo}</td>
-                        <td>
-                          <span
-                            className={`badge ${p.activo ? "bg-success" : "bg-secondary"}`}
-                          >
-                            {p.activo ? "Activo" : "Inactivo"}
-                          </span>
-                        </td>
-                        <td className="text-center">
-                          <button
-                            className="btn btn-sm btn-outline-primary btn-icon me-1"
-                            onClick={() => openEdit(p)}
-                            title="Editar"
-                          >
-                            <i className="bi bi-pencil"></i>
-                          </button>
-                          <button
-                            className="btn btn-sm btn-outline-danger btn-icon"
-                            onClick={() => confirmDelete(p._id)}
-                            title="Eliminar"
-                          >
-                            <i className="bi bi-trash"></i>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                              {p.activo ? "Activo" : "Inactivo"}
+                            </span>
+                          </td>
+                          <td className="text-center">
+                            <button
+                              className="btn btn-sm btn-outline-primary btn-icon me-1"
+                              onClick={() => openEdit(p)}
+                              title="Editar"
+                            >
+                              <i className="bi bi-pencil"></i>
+                            </button>
+                            <button
+                              className="btn btn-sm btn-outline-danger btn-icon"
+                              onClick={() => confirmDelete(pid)}
+                              title="Eliminar"
+                            >
+                              <i className="bi bi-trash"></i>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {productos.length === 0 && (
                       <tr>
                         <td
-                          colSpan={11}
+                          colSpan={12}
                           className="text-center text-muted py-4"
                         >
                           No se encontraron productos.
@@ -461,7 +595,6 @@ function Productos() {
                         value={form.codigo}
                         onChange={handleFormChange}
                         required
-                        placeholder="Ej: PROD-001"
                       />
                     </div>
                     <div className="col-md-4">
@@ -627,18 +760,97 @@ function Productos() {
                         onChange={handleFormChange}
                       />
                     </div>
-                    <div className="col-md-8">
-                      <label className="form-label small fw-semibold">
-                        Imagen (URL)
+                    {/* Sección Fotografía del Producto (Cámara / Galería / URL) */}
+                    <div className="col-12">
+                      <label className="form-label small fw-semibold d-flex align-items-center gap-1">
+                        <i className="bi bi-image text-success"></i>
+                        Foto / Imagen del Producto
                       </label>
+
+                      {/* Inputs ocultos de archivo */}
                       <input
-                        className="form-control"
-                        name="imagen"
-                        value={form.imagen}
-                        onChange={handleFormChange}
-                        placeholder="https://..."
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        ref={fileCameraInputRef}
+                        style={{ display: "none" }}
+                        onChange={handlePhotoSelected}
                       />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        ref={fileGalleryInputRef}
+                        style={{ display: "none" }}
+                        onChange={handlePhotoSelected}
+                      />
+
+                      <div className="row g-2 align-items-center">
+                        <div className="col-12 col-md-auto d-flex gap-2">
+                          <button
+                            type="button"
+                            className="btn btn-outline-success btn-sm d-flex align-items-center gap-1 shadow-xs"
+                            onClick={() => fileCameraInputRef.current?.click()}
+                            disabled={compressingPhoto}
+                          >
+                            <i className="bi bi-camera-fill"></i>
+                            {compressingPhoto ? "Procesando..." : "Tomar Foto"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1 shadow-xs"
+                            onClick={() => fileGalleryInputRef.current?.click()}
+                            disabled={compressingPhoto}
+                          >
+                            <i className="bi bi-images"></i>
+                            Galería
+                          </button>
+                        </div>
+                        <div className="col-12 col-md">
+                          <div className="input-group input-group-sm">
+                            <span className="input-group-text bg-light text-muted">URL</span>
+                            <input
+                              className="form-control"
+                              name="imagen"
+                              value={form.imagen}
+                              onChange={handleFormChange}
+                              placeholder="O pega un enlace de imagen (https://...)"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Vista previa de foto */}
+                      {form.imagen && (
+                        <div className="d-flex align-items-center gap-3 mt-2 p-2 bg-light rounded-3 border">
+                          <img
+                            src={form.imagen}
+                            alt="Vista previa"
+                            className="rounded border shadow-xs"
+                            style={{ width: "54px", height: "54px", objectFit: "cover" }}
+                            onError={(e) => {
+                              e.target.style.display = "none";
+                            }}
+                          />
+                          <div className="flex-grow-1 min-w-0">
+                            <span className="badge bg-success bg-opacity-10 text-success fw-semibold mb-1">
+                              Foto Lista
+                            </span>
+                            <div className="text-muted small text-truncate" style={{ maxWidth: "240px" }}>
+                              {form.imagen.startsWith("data:") ? "Imagen capturada con cámara" : form.imagen}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-danger py-1 px-2"
+                            onClick={() => setForm((prev) => ({ ...prev, imagen: "" }))}
+                            title="Eliminar Foto"
+                          >
+                            <i className="bi bi-trash-fill"></i>
+                          </button>
+                        </div>
+                      )}
                     </div>
+
                     <div className="col-12">
                       <div className="form-check form-switch">
                         <input
@@ -725,6 +937,69 @@ function Productos() {
                   onClick={handleDelete}
                 >
                   <i className="bi bi-trash me-1"></i>Eliminar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBulkDeleteConfirm && (
+        <div
+          className="modal d-block"
+          tabIndex={-1}
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0 shadow">
+              <div className="modal-header bg-danger text-white">
+                <h6 className="modal-title fw-bold d-flex align-items-center gap-2">
+                  <i className="bi bi-exclamation-triangle-fill"></i>
+                  Confirmar Eliminación Masiva
+                </h6>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  disabled={bulkDeleting}
+                ></button>
+              </div>
+              <div className="modal-body text-center py-4">
+                <i className="bi bi-trash3 text-danger fs-1 d-block mb-3"></i>
+                <h5 className="fw-bold mb-2">
+                  ¿Eliminar {selectedIds.length} producto(s) seleccionados?
+                </h5>
+                <p className="text-muted small mb-0 px-3">
+                  Los productos seleccionados se eliminarán del catálogo.
+                  Esta acción no se puede deshacer.
+                </p>
+              </div>
+              <div className="modal-footer border-0 justify-content-center gap-2 pb-4">
+                <button
+                  type="button"
+                  className="btn btn-secondary px-4"
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  disabled={bulkDeleting}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger px-4"
+                  onClick={handleBulkDelete}
+                  disabled={bulkDeleting}
+                >
+                  {bulkDeleting ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-1"></span>
+                      Eliminando...
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-trash-fill me-1"></i>
+                      Sí, Eliminar {selectedIds.length} Productos
+                    </>
+                  )}
                 </button>
               </div>
             </div>

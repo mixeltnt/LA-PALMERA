@@ -1,0 +1,31 @@
+﻿================================================================================
+           🌴 LA PALMERA POS - VERSIÓN 18 (v18.0.0) 🌴
+================================================================================
+
+NOVEDADES Y MEJORAS DE LA VERSIÓN 18:
+
+1. 🐾 INTRO MINIMARKET ORIGINAL RESTAURADA:
+   - Se eliminó la escena exterior y se restauró la intro limpia y profesional
+     de 5 segundos donde Palmi entra trotando al mostrador del minimarket
+     directo a la Caja 1 con su letrero de Punto de Venta.
+   - Cuenta regresiva fluida y opción de saltar de inmediato con ESC, Espacio,
+     Enter o clic.
+
+2. 🖥️ INTERFAZ LIMPIA Y CONTROL TOTAL CON TECLA ESC:
+   - Se eliminaron los botones de control adicionales de la barra superior
+     y del Login, manteniendo la interfaz 100% limpia.
+   - El sistema se abre en pantalla completa y con tan solo presionar la tecla
+     ESC (o F11) se reduce inmediatamente a Modo Ventana para acceder al escritorio.
+
+3. 🐶 PALMI NÍTIDO, AMPLIADO Y SIN CORTES:
+   - Se corrigió el recorte y la aureola del perro salchicha. Ahora se visualiza
+     completo, transparente y en alta definición (un poco más grande: 74px).
+   - Se mantiene la función de auto-ocultamiento: Palmi permanece recogido y
+     aparece al pasar el ratón por la esquina inferior derecha.
+
+4. 🖼️ ACCESO DIRECTO CON EL LOGO OFICIAL:
+   - El acceso directo en el Escritorio cuenta con el icono oficial de La Palmera
+     (palmera + mascota salchicha).
+
+================================================================================
+Desarrollado por MixelTNT

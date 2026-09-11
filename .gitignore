@@ -1,1 +1,11 @@
-launcher/logs/
+﻿node_modules/
+.env
+*.log
+dist/
+admin-web/dist/
+frontend/dist/
+frontend/src-tauri/target/
+database/lapalmera.db
+database/lapalmera.db-journal
+*.exe
+*.msi

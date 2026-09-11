@@ -53,10 +53,21 @@ const ventaSchema = new mongoose.Schema(
 
 ventaSchema.pre("validate", async function () {
   if (this.isNew && (this.numeroVenta == null || this.numeroVenta === 0)) {
+    const maxVenta = await mongoose
+      .model("Venta")
+      .findOne({})
+      .sort({ numeroVenta: -1 })
+      .select("numeroVenta")
+      .lean();
+    const maxExistente = Number(maxVenta?.numeroVenta || 0);
+
+    const seq = await Secuencia.findOne({ nombre: "venta" });
+    const nextVal = Math.max(Number(seq?.valorActual || 0), maxExistente) + 1;
+
     const secuencia = await Secuencia.findOneAndUpdate(
       { nombre: "venta" },
-      { $inc: { valorActual: 1 } },
-      { new: true, upsert: true, setDefaultsOnInsert: true },
+      { $set: { valorActual: nextVal } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
     );
     this.numeroVenta = secuencia.valorActual;
   }

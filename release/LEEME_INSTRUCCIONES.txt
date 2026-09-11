@@ -1,0 +1,45 @@
+========================================================================
+             LA PALMERA POS - MEJORAS Y CAMBIOS VERSIÓN 9 (V9)
+========================================================================
+Fecha de Lanzamiento: Septiembre 2026
+Estado: Producción Final (Corrección de Eliminación Definitiva de Productos)
+
+1. CORRECCIÓN Y REPARACIÓN EN ELIMINACIÓN DE PRODUCTOS:
+   - Se corrigió la eliminación individual y masiva (selección múltiple de celdas).
+   - Ahora, al eliminar un producto o varios seleccionados, se realiza una limpieza
+     transaccional completa de claves foráneas y se borra de forma DEFINITIVA
+     de la base de datos SQLite y de la tabla visual de productos al instante.
+
+2. SUBIDA DIRECTA A ONEDRIVE VÍA MICROSOFT GRAPH API:
+   - Sube las copias de seguridad directamente a tu OneDrive (michael.oliva@inacapmail.cl).
+   - ¡NO REQUIERE tener instalado OneDrive de Windows en el PC del negocio!
+   - ¡NO DEJA tu correo personal ni contraseñas guardadas en ese computador!
+   - Vinculación segura en 1 paso mediante Código de Dispositivo (microsoft.com/devicelogin).
+
+3. TECLAS RÁPIDAS DE COBRO INSTANTÁNEO EN CAJA:
+   - F1: Cobro directo en Efectivo (abre modal de cobro y calcula vuelto).
+   - F2: Cobro directo con Débito / Tarjeta.
+   - F3: Cobro Fiado (despliega cliente seleccionado).
+   - ESC: Cancelar cobro, descartar ventanas o limpiar venta actual.
+
+4. SONIDO POS NATIVO SINTETIZADO (Web Audio API):
+   - Beep suave y rápido al escanear código de barras o agregar un producto.
+   - Tono grave de advertencia si no hay stock o el código no existe en catálogo.
+   - Acorde musical de éxito al confirmar y finalizar cada venta.
+
+5. BARRA DE ACCESO RÁPIDO / GRANEL (1 TOQUE):
+   - Botones táctiles superiores para productos frecuentes (Pan, Huevos, Cecinas, etc.).
+
+6. COMPROBANTE TÉRMICO DE ABONOS A CUENTA (VOUCHER FIADOS):
+   - Voucher imprimible para impresoras térmicas (80mm / 58mm) al abonar deuda de fiado.
+
+7. GANANCIA REAL / UTILIDAD NETA Y MARGEN EN DASHBOARD:
+   - Cálculo contable en tiempo real: Ganancia Neta = Total Vendido - Costo.
+
+------------------------------------------------------------------------
+USUARIOS Y ACCESOS
+------------------------------------------------------------------------
+- Venta Rápida: Botón verde '⚡ INGRESAR A VENTAS' (Sin contraseña).
+- Administradora (Yasna): Contraseña 'Carlos1941'
+- Supervisora (Karla): Contraseña 'Karla2004'
+========================================================================

@@ -1,15 +1,20 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
-import { api } from "../services/api";
+import { authService } from "../services/authService";
 
 const AuthContext = createContext();
 
 function getStoredUser() {
-  const saved = localStorage.getItem("lapalmera-user");
+  if (typeof window === "undefined") return null;
+  // Limpiar cualquier residuo de localStorage para exigir contraseña siempre
+  localStorage.removeItem("lapalmera-user");
+  const saved = sessionStorage.getItem("lapalmera-user");
   return saved ? JSON.parse(saved) : null;
 }
 
 function getStoredToken() {
-  return localStorage.getItem("lapalmera-token") || sessionStorage.getItem("lapalmera-token") || null;
+  if (typeof window === "undefined") return null;
+  localStorage.removeItem("lapalmera-token");
+  return sessionStorage.getItem("lapalmera-token") || null;
 }
 
 export function AuthProvider({ children }) {
@@ -17,24 +22,25 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(getStoredToken);
   const [loading, setLoading] = useState(false);
 
-  const storeSession = useCallback((userData, tokenStr, remember) => {
-    const storage = remember ? localStorage : sessionStorage;
-    storage.setItem("lapalmera-token", tokenStr);
-    storage.setItem("lapalmera-user", JSON.stringify(userData));
-    if (remember) {
-      sessionStorage.removeItem("lapalmera-token");
-      sessionStorage.removeItem("lapalmera-user");
-    }
+  const storeSession = useCallback((userData, tokenStr) => {
+    // Usar exclusivamente sessionStorage: al cerrar la app se cierra la sesión
+    sessionStorage.setItem("lapalmera-token", tokenStr);
+    sessionStorage.setItem("lapalmera-user", JSON.stringify(userData));
+    localStorage.removeItem("lapalmera-token");
+    localStorage.removeItem("lapalmera-user");
     setUser(userData);
     setToken(tokenStr);
   }, []);
 
-  const login = useCallback(async (usuario, password, remember = false) => {
+  const login = useCallback(async (usuario, password) => {
     setLoading(true);
     try {
-      const data = await api.post("/auth/login", { usuario, password });
-      storeSession(data.usuario, data.token, remember);
-      return data;
+      const data = await authService.login(usuario, password);
+      if (data && data.usuario && data.token) {
+        storeSession(data.usuario, data.token);
+        return data;
+      }
+      throw new Error("No se pudo iniciar sesión.");
     } finally {
       setLoading(false);
     }

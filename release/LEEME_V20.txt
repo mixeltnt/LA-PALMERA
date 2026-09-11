@@ -1,0 +1,36 @@
+================================================================================
+           🌴 LA PALMERA POS - VERSIÓN 20 (v20.0.0) 🌴
+           Sistema Integral de Punto de Venta & Abastecimiento
+================================================================================
+
+NOVEDADES Y MEJORAS DE LA VERSIÓN 20:
+
+1. 🚚 FLUJO DE COMPRAS OPTIMIZADO Y EN CALIENTE:
+   - Creación inmediata de Proveedores dentro del modal de "Nueva Compra" (+ Nuevo Proveedor).
+   - Creación inmediata de Productos directamente en la tabla de compra (+ Crear Nuevo Producto).
+   - Escaneo directo con pistola de código de barras para compras (agrega ítems existentes o abre el alta si no existe).
+   - Actualización automática de stock y costo en SQLite local al confirmar la compra.
+
+2. 🛡️ SISTEMA INTELIGENTE ANTI-DUPLICADOS:
+   - Buscador predictivo normalizado insensible a tildes, mayúsculas y espacios.
+   - Detector en vivo en la creación de productos: alerta si ya existe un producto con nombre o código similar con botón [Usar Existente].
+
+3. 📦 CATÁLOGO DE PRODUCTOS:
+   - Remoción del botón de alta directa (la mercadería ingresa por Compras).
+   - Conservación de opciones de edición de precios, estado y eliminación.
+
+4. 📊 PROVEEDORES CON ANALÍTICA E HISTORIAL COMPLETO:
+   - Panel maestro con: Total de compras, Monto total invertido ($), Última fecha de compra y total de productos suministrados.
+   - Modal interactivo de Detalle: Catálogo de productos comprados (precios pagados, cantidades, fechas) e Historial de facturas.
+
+5. ⭐ COMPARATIVA DE PROVEEDORES (DÓNDE CONVIENE COMPRAR):
+   - Nueva sección en Reportes que analiza las compras cruzadas por producto.
+   - Identificación automática del "Proveedor Más Conveniente" (con badge verde ⭐).
+   - Cálculo de ahorro ($ y %) por producto y métricas de mayor ahorro identificado.
+
+6. ⚡ PANTALLA DE VENTAS (POS) COMPACTA SIN SCROLL:
+   - Rediseño ergonómico para visualizar el 100% de la pantalla (escáner, búsqueda, granel, carrito completo, panel de cobro y totales) sin scroll vertical en pantallas estándar.
+
+================================================================================
+Desarrollado con ❤️ para Minimarket La Palmera por MixelTNT • 2026
+================================================================================

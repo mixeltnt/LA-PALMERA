@@ -4,6 +4,8 @@ import productService from "../../services/productService";
 import clientService from "../../services/clientService";
 import ventaService from "../../services/ventaService";
 import TicketVenta from "../../components/Ventas/TicketVenta";
+import { playSuccessBeep, playWarningBeep, playSaleDoneBeep } from "../../utils/audioBeep";
+import { formatRut, validarRut } from "../../utils/validators";
 
 const emptyForm = {
   cliente: "",
@@ -17,6 +19,7 @@ const METODO_FIADO = "FIADO";
 function Ventas() {
   const { user } = useAuth();
   const [productos, setProductos] = useState([]);
+  const [productosRapidos, setProductosRapidos] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [loadingProductos, setLoadingProductos] = useState(true);
   const [loadingClientes, setLoadingClientes] = useState(true);
@@ -55,14 +58,16 @@ function Ventas() {
   }, []);
 
   const cargarProductos = useCallback(async (term = "") => {
-    setLoadingProductos(true);
     try {
       const data = await productService.listar({
         search: term,
-        limit: 12,
+        limit: 20,
         activo: "true",
       });
       setProductos(data.productos || []);
+      if (!term) {
+        setProductosRapidos((prev) => (!prev || prev.length === 0 ? (data.productos || []) : prev));
+      }
     } catch {
       setProductos([]);
     } finally {
@@ -71,7 +76,6 @@ function Ventas() {
   }, []);
 
   const cargarClientes = useCallback(async () => {
-    setLoadingClientes(true);
     try {
       const data = await clientService.listar({ limit: 100, activo: "true" });
       setClientes(data.clientes || []);
@@ -104,6 +108,38 @@ function Ventas() {
   useEffect(() => {
     focusScanner();
   }, [focusScanner]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (e.key === "F1") {
+        e.preventDefault();
+        setForm((prev) => ({ ...prev, metodoPago: "EFECTIVO" }));
+      } else if (e.key === "F2") {
+        e.preventDefault();
+        setForm((prev) => ({ ...prev, metodoPago: "DEBITO" }));
+      } else if (e.key === "F3") {
+        e.preventDefault();
+        setForm((prev) => ({ ...prev, metodoPago: METODO_FIADO }));
+      } else if (e.key === "F4") {
+        e.preventDefault();
+        setForm((prev) => ({ ...prev, metodoPago: "TRANSFERENCIA" }));
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        if (showCobro) {
+          setShowCobro(false);
+        } else if (showNuevoCliente) {
+          setShowNuevoCliente(false);
+        } else if (ventaConfirmada) {
+          setVentaConfirmada(null);
+        } else {
+          focusScanner();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [showCobro, showNuevoCliente, ventaConfirmada, focusScanner]);
 
   const subtotal = useMemo(
     () => cart.reduce((sum, item) => sum + Number(item.subtotal || 0), 0),
@@ -148,7 +184,7 @@ function Ventas() {
   }, [esFiado, form.cliente]);
 
   const clienteSeleccionado = useMemo(
-    () => clientes.find((cliente) => cliente._id === form.cliente) || null,
+    () => clientes.find((cliente) => String(cliente._id || cliente.id) === String(form.cliente)) || null,
     [clientes, form.cliente],
   );
 
@@ -160,22 +196,32 @@ function Ventas() {
 
   const agregarProducto = (producto, onMensaje) => {
     const mostrarMensaje = onMensaje || ((mensaje) => setError(mensaje));
+    const esActivo = producto?.activo !== false && producto?.activo !== 0;
+    const stockDisponible = Number(producto?.stockActual ?? 0);
 
-    if (!producto?.activo || Number(producto.stockActual) <= 0) {
-      mostrarMensaje("Producto sin stock disponible.");
+    if (!esActivo) {
+      playWarningBeep();
+      mostrarMensaje(`El producto "${producto?.nombre || 'seleccionado'}" se encuentra inactivo. Actívalo en el catálogo de productos.`);
+      return "inactivo";
+    }
+
+    if (stockDisponible <= 0) {
+      playWarningBeep();
+      mostrarMensaje(`El producto "${producto?.nombre || 'seleccionado'}" no tiene stock disponible (Stock: 0).`);
       return "sin_stock";
     }
 
     const existente = cart.find((item) => item._id === producto._id);
-    const stockDisponible = Number(producto.stockActual) || 0;
 
     if (existente && Number(existente.cantidad) >= stockDisponible) {
+      playWarningBeep();
       mostrarMensaje(
         `Stock máximo alcanzado para ${producto.nombre}: solo hay ${stockDisponible} disponible(s).`,
       );
       return "max_stock";
     }
 
+    playSuccessBeep();
     setCart((prev) => {
       const itemExistente = prev.find((item) => item._id === producto._id);
       if (!itemExistente) {
@@ -255,17 +301,27 @@ function Ventas() {
     }
 
     try {
-      const data = await productService.listar({
-        search: `^${escapeRegex(codigo)}$`,
-        limit: 10,
-        activo: "true",
-      });
-      const encontrado = (data.productos || []).find(
-        (producto) =>
-          producto.codigoBarras === codigo || producto.codigo === codigo,
-      );
+      // 1. Búsqueda exacta directa por código o código de barras
+      let encontrado = await productService.buscarPorCodigo(codigo);
+
+      // 2. Si no se encuentra directo, buscar en lista de productos
+      if (!encontrado) {
+        const data = await productService.listar({
+          search: codigo,
+          limit: 10,
+          activo: "true",
+        });
+        encontrado = (data.productos || []).find(
+          (producto) =>
+            producto.codigoBarras === codigo ||
+            producto.codigo === codigo ||
+            String(producto.codigoBarras || "").trim().toLowerCase() === codigo.toLowerCase() ||
+            String(producto.codigo || "").trim().toLowerCase() === codigo.toLowerCase(),
+        );
+      }
 
       if (!encontrado) {
+        playWarningBeep();
         setToast({ type: "danger", text: `Producto no encontrado: ${codigo}` });
         setError("");
         setScanner("");
@@ -278,6 +334,7 @@ function Ventas() {
       );
       setError("");
     } catch {
+      playWarningBeep();
       setToast({
         type: "danger",
         text: "Error al buscar el código de barras.",
@@ -300,6 +357,47 @@ function Ventas() {
     let timeoutId = null;
 
     const handler = (e) => {
+      // Hotkeys globales de POS
+      if (e.key === "F1") {
+        e.preventDefault();
+        if (cart.length > 0) {
+          setForm((prev) => ({ ...prev, metodoPago: "EFECTIVO" }));
+          setShowCobro(true);
+        }
+        return;
+      }
+      if (e.key === "F2") {
+        e.preventDefault();
+        if (cart.length > 0) {
+          setForm((prev) => ({ ...prev, metodoPago: "DEBITO" }));
+          setShowCobro(true);
+        }
+        return;
+      }
+      if (e.key === "F3") {
+        e.preventDefault();
+        if (cart.length > 0) {
+          setForm((prev) => ({ ...prev, metodoPago: "FIADO" }));
+          setShowCobro(true);
+        }
+        return;
+      }
+      if (e.key === "Escape") {
+        if (showCobro) {
+          setShowCobro(false);
+          focusScanner();
+        } else if (showNuevoCliente) {
+          setShowNuevoCliente(false);
+          focusScanner();
+        } else if (ticketToPrint) {
+          setTicketToPrint(null);
+          focusScanner();
+        } else if (cart.length > 0) {
+          cancelar();
+        }
+        return;
+      }
+
       if (showCobro || showNuevoCliente || ticketToPrint || saving) return;
 
       const target = e.target;
@@ -338,7 +436,7 @@ function Ventas() {
       window.removeEventListener("keydown", handler);
       if (timeoutId) window.clearTimeout(timeoutId);
     };
-  }, [showCobro, showNuevoCliente, ticketToPrint, saving]);
+  }, [showCobro, showNuevoCliente, ticketToPrint, saving, cart.length, focusScanner]);
 
   const abrirCobro = () => {
     const errores = validarFormulario();
@@ -396,23 +494,24 @@ function Ventas() {
 
       if (idVenta) {
         const actualizada = await ventaService.actualizar(idVenta, payload);
-        idVenta = actualizada._id;
+        idVenta = actualizada._id || actualizada.id;
         numeroVentaConfirmada = actualizada.numeroVenta ?? numeroVenta;
       } else {
         const creada = await ventaService.crear(payload);
-        idVenta = creada._id;
-        numeroVentaConfirmada = creada.numeroVenta ?? null;
-        setNumeroVenta(creada.numeroVenta ?? null);
+        idVenta = creada._id || creada.id || creada.venta?._id || creada.venta?.id;
+        numeroVentaConfirmada = creada.numeroVenta ?? creada.venta?.numeroVenta ?? null;
+        setNumeroVenta(numeroVentaConfirmada);
       }
 
-      await ventaService.confirmar(idVenta);
+      playSaleDoneBeep();
       setShowCobro(false);
-      setToast({ type: "success", text: "Venta confirmada correctamente." });
       const ticketConfirmada = construirTicketConfirmada(numeroVentaConfirmada);
       limpiarFormulario();
       setVentaConfirmada(ticketConfirmada);
       focusScanner();
     } catch (err) {
+      playWarningBeep();
+      console.error("[Ventas] Error al confirmar cobro:", err);
       setError(err.message || "Error al confirmar la venta.");
     } finally {
       setSaving(false);
@@ -448,7 +547,8 @@ function Ventas() {
 
   const handleNuevoClienteChange = (e) => {
     const { name, value } = e.target;
-    setNuevoCliente((prev) => ({ ...prev, [name]: value }));
+    const finalVal = name === "rut" ? formatRut(value) : value;
+    setNuevoCliente((prev) => ({ ...prev, [name]: finalVal }));
     setError("");
   };
 
@@ -461,17 +561,23 @@ function Ventas() {
       return;
     }
 
+    if (nuevoCliente.rut.trim() && !validarRut(nuevoCliente.rut)) {
+      setError("El RUT ingresado no es válido (ej: 12.345.678-5).");
+      return;
+    }
+
     setGuardandoCliente(true);
     try {
-      const creado = await clientService.crear({
+      const res = await clientService.crear({
         nombre: nuevoCliente.nombre.trim(),
         rut: nuevoCliente.rut.trim(),
         telefono: nuevoCliente.telefono.trim(),
         activo: true,
       });
 
-      setClientes((prev) => [creado, ...prev]);
-      setForm((prev) => ({ ...prev, cliente: creado._id }));
+      const clienteNuevo = res.cliente || res;
+      setClientes((prev) => [clienteNuevo, ...prev]);
+      setForm((prev) => ({ ...prev, cliente: String(clienteNuevo._id || clienteNuevo.id) }));
       setNuevoCliente({ nombre: "", rut: "", telefono: "" });
       setShowNuevoCliente(false);
       setToast({ type: "success", text: "Cliente creado y seleccionado." });
@@ -542,14 +648,27 @@ function Ventas() {
 
   const construirPayload = () => ({
     cliente: form.cliente || null,
+    clienteId: form.cliente ? Number(form.cliente) : null,
+    clienteNombre: clienteSeleccionado?.nombre || null,
+    cajeroId: user?.id || 1,
+    cajeroNombre: user?.nombre || "Cajero",
     metodoPago: form.metodoPago,
+    metodoPagoPrincipal: (form.metodoPago || "efectivo").toLowerCase(),
     observaciones: form.observaciones,
     descuento: Number(form.descuento || 0),
+    montoRecibido: form.metodoPago === "EFECTIVO" ? recibido : total,
+    vuelto: form.metodoPago === "EFECTIVO" ? (recibido - total) : 0,
+    total,
+    subtotal,
     productos: cart.map((item) => ({
-      producto: item._id,
-      cantidad: Number(item.cantidad),
+      producto: item._id || item.id,
+      productoId: item._id || item.id,
+      codigo: item.codigo,
+      nombre: item.nombre,
       precioUnitario: Number(item.precioUnitario),
+      cantidad: Number(item.cantidad),
       descuento: Number(item.descuento || 0),
+      subtotal: Number(item.subtotal),
     })),
   });
 
@@ -598,54 +717,71 @@ function Ventas() {
   }, []);
 
   return (
-    <div className="pos-page">
-      <div className="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
-        <div>
-          <h3 className="fw-bold mb-1">
-            <i className="bi bi-cart3 text-success me-2"></i>Nueva venta
-          </h3>
-          <p className="text-muted small mb-0">
-            Escanea un código de barras para agregar productos al carrito.
-          </p>
+    <div className="pos-page px-1 py-1">
+      {/* 1. BARRA SUPERIOR COMPACTA */}
+      <div className="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
+        <div className="d-flex align-items-center gap-2">
+          <h4 className="fw-bold mb-0 text-success d-flex align-items-center gap-1" style={{ fontSize: "1.1rem" }}>
+            <i className="bi bi-cart-check"></i> Ventas
+          </h4>
+          <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25" style={{ fontSize: "0.68rem" }}>
+            v22 POS
+          </span>
         </div>
-        <div className="text-end">
-          <div className="small text-muted">Atendido por</div>
-          <div className="fw-semibold">
-            {user?.nombre || user?.usuario || "Usuario autenticado"}
+
+        {/* Atajos de teclado - Solo visibles en PC */}
+        <div className="d-none d-md-flex align-items-center gap-1">
+          <span className="badge bg-light text-dark border px-2 py-1 small">
+            <kbd className="bg-success text-white me-1">F1</kbd> Efectivo
+          </span>
+          <span className="badge bg-light text-dark border px-2 py-1 small">
+            <kbd className="bg-primary text-white me-1">F2</kbd> Débito
+          </span>
+          <span className="badge bg-light text-dark border px-2 py-1 small">
+            <kbd className="bg-info text-dark me-1">F4</kbd> Transf.
+          </span>
+          <span className="badge bg-light text-dark border px-2 py-1 small">
+            <kbd className="bg-danger text-white me-1">F3</kbd> Fiado
+          </span>
+          <span className="badge bg-light text-dark border px-2 py-1 small">
+            <kbd className="bg-secondary text-white me-1">ESC</kbd> Cancelar
+          </span>
+        </div>
+
+        <div className="d-flex align-items-center gap-2 text-end">
+          <div className="small text-truncate" style={{ maxWidth: "120px" }}>
+            <span className="text-muted">Cajero: </span>
+            <strong className="text-dark">{user?.nombre || user?.usuario || "Yasna"}</strong>
           </div>
           {numeroVenta != null && (
-            <span className="badge bg-success-subtle text-success mt-2">
-              Borrador #{numeroVenta}
+            <span className="badge bg-warning-subtle text-warning-emphasis border border-warning border-opacity-50" style={{ fontSize: "0.68rem" }}>
+              #{numeroVenta}
             </span>
           )}
         </div>
       </div>
 
-      {error && <div className="alert alert-danger">{error}</div>}
-      {toast && <div className={`alert alert-${toast.type}`}>{toast.text}</div>}
+      {error && <div className="alert alert-danger py-1 px-3 mb-2 small">{error}</div>}
+      {toast && <div className={`alert alert-${toast.type} py-1 px-3 mb-2 small`}>{toast.text}</div>}
 
       {ventaConfirmada && (
-        <div className="alert alert-success d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div className="alert alert-success d-flex justify-content-between align-items-center py-2 px-3 mb-2 small flex-wrap gap-2">
           <div>
             <i className="bi bi-check-circle-fill me-2"></i>
-            Venta{" "}
-            {ventaConfirmada.venta.numeroVenta != null &&
-              `#${ventaConfirmada.venta.numeroVenta} `}
-            confirmada por{" "}
-            <strong>{formatPrice(ventaConfirmada.venta.total)}</strong>.
+            Venta {ventaConfirmada.venta.numeroVenta != null && `#${ventaConfirmada.venta.numeroVenta} `}
+            confirmada por <strong>{formatPrice(ventaConfirmada.venta.total)}</strong>.
           </div>
-          <div className="d-flex gap-2">
+          <div className="d-flex gap-2 ms-auto">
             <button
               type="button"
-              className="btn btn-success btn-sm"
+              className="btn btn-success btn-sm py-0 px-2"
               onClick={() => setTicketToPrint(ventaConfirmada)}
             >
-              <i className="bi bi-printer me-1"></i>Imprimir ticket
+              <i className="bi bi-printer me-1"></i>Ticket
             </button>
             <button
               type="button"
-              className="btn btn-outline-secondary btn-sm"
-              title="Descartar ticket"
+              className="btn btn-outline-secondary btn-sm py-0 px-2"
               onClick={() => setVentaConfirmada(null)}
             >
               <i className="bi bi-x-lg"></i>
@@ -654,116 +790,157 @@ function Ventas() {
         </div>
       )}
 
-      <div className="card border-0 shadow-sm mb-3">
-        <div className="card-body py-3">
-          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-            <label htmlFor="scanner-input" className="form-label fw-bold mb-0">
-              <i className="bi bi-upc-scan text-success me-2 fs-5"></i>
-              Escanea un código de barras
-            </label>
-            <span className="small text-muted">
-              El producto se agrega al carrito automáticamente
-            </span>
-          </div>
-          <input
-            id="scanner-input"
-            className="form-control form-control-lg"
-            placeholder="Código de barras (escanea y presiona Enter)..."
-            value={scanner}
-            ref={scannerRef}
-            onChange={(e) => setScanner(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                e.stopPropagation();
-                void buscarScanner(e.target.value);
-              }
-            }}
-            autoFocus
-          />
-        </div>
-      </div>
+      {/* 2. BARRA DE ENTRADA RÁPIDA: Escáner de Barras + Búsqueda Rápida + Granel */}
+      <div className="card border-0 shadow-sm mb-2 bg-light">
+        <div className="card-body p-2">
+          <div className="row g-2 align-items-center">
+            {/* Input Escáner de Barras */}
+            <div className="col-12 col-md-6">
+              <div className="input-group input-group-sm">
+                <span className="input-group-text bg-white text-success fw-bold py-1">
+                  <i className="bi bi-upc-scan me-1"></i> <span className="d-none d-sm-inline">Escanear:</span>
+                </span>
+                <input
+                  id="scanner-input"
+                  className="form-control fw-semibold"
+                  placeholder="Escanea o escribe código..."
+                  value={scanner}
+                  ref={scannerRef}
+                  onChange={(e) => setScanner(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void buscarScanner(e.target.value);
+                    }
+                  }}
+                  autoFocus
+                />
+              </div>
+            </div>
 
-      <div className="card border-0 shadow-sm mb-3">
-        <div className="card-body py-3">
-          <label
-            htmlFor="busqueda-rapida-input"
-            className="form-label fw-bold mb-2"
-          >
-            <i className="bi bi-search text-success me-2"></i>
-            Buscar producto rápidamente
-          </label>
-          <input
-            id="busqueda-rapida-input"
-            className="form-control"
-            placeholder="Buscar por código, nombre o marca..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+            {/* Input Búsqueda Rápida de Texto */}
+            <div className="col-12 col-md-6">
+              <div className="input-group input-group-sm">
+                <span className="input-group-text bg-white text-muted py-1">
+                  <i className="bi bi-search"></i>
+                </span>
+                <input
+                  id="busqueda-rapida-input"
+                  className="form-control"
+                  placeholder="Buscar por nombre, categoría..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Acceso Rápido / Granel (1 Toque) con scroll horizontal suave en móvil */}
+            {productosRapidos && productosRapidos.length > 0 && (
+              <div className="col-12 pt-1">
+                <div className="d-flex align-items-center gap-1 flex-nowrap overflow-auto py-1" style={{ WebkitOverflowScrolling: "touch" }}>
+                  <span className="badge bg-warning bg-opacity-25 text-dark me-1 py-1 small flex-shrink-0" style={{ fontSize: "0.72rem" }}>
+                    <i className="bi bi-lightning-fill text-warning me-1"></i>Rápido:
+                  </span>
+                  {productosRapidos.slice(0, 10).map((prod) => (
+                    <button
+                      key={prod._id || prod.id}
+                      type="button"
+                      className="btn btn-outline-secondary btn-sm py-0 px-2 rounded-pill shadow-xs d-inline-flex align-items-center gap-1 flex-shrink-0"
+                      style={{ fontSize: "0.75rem" }}
+                      disabled={Number(prod.stockActual) <= 0}
+                      onClick={() => {
+                        agregarProducto(prod);
+                        focusScanner();
+                      }}
+                      title={`${prod.nombre} - ${formatPrice(prod.precioVenta)} (Stock: ${prod.stockActual})`}
+                    >
+                      {(prod.imagen || prod.imagenUrl) && (
+                        <img
+                          src={prod.imagen || prod.imagenUrl}
+                          alt=""
+                          className="rounded-circle"
+                          style={{ width: "16px", height: "16px", objectFit: "cover" }}
+                          onError={(e) => {
+                            e.target.style.display = "none";
+                          }}
+                        />
+                      )}
+                      <span className="fw-semibold text-truncate" style={{ maxWidth: "100px" }}>
+                        {prod.nombre}
+                      </span>
+                      <strong className="text-success">{formatPrice(prod.precioVenta)}</strong>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Lista flotante de resultados de búsqueda rápida */}
           {search.trim() !== "" && (
-            <div className="mt-3">
+            <div className="mt-2 border rounded bg-white shadow-sm overflow-auto" style={{ maxHeight: "180px" }}>
               {loadingProductos ? (
-                <div className="text-center py-3">
-                  <div
-                    className="spinner-border spinner-border-sm text-success"
-                    role="status"
-                  >
-                    <span className="visually-hidden">Buscando...</span>
-                  </div>
+                <div className="text-center py-2">
+                  <div className="spinner-border spinner-border-sm text-success" role="status"></div>
                 </div>
               ) : (
-                <div className="pos-productos-lista">
-                  <div className="list-group">
-                    {productos.length > 0 ? (
-                      productos.map((producto) => (
-                        <div
-                          key={producto._id}
-                          className="list-group-item d-flex justify-content-between align-items-center gap-3 py-2"
-                        >
-                          <div className="flex-grow-1 min-w-0">
-                            <div className="fw-semibold text-truncate">
-                              {producto.nombre}
+                <div className="list-group list-group-flush">
+                  {productos.length > 0 ? (
+                    productos.map((producto) => (
+                      <div
+                        key={producto._id}
+                        className="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-1 px-2"
+                      >
+                        <div className="d-flex align-items-center gap-2 min-w-0 flex-grow-1">
+                          {(producto.imagen || producto.imagenUrl) ? (
+                            <img
+                              src={producto.imagen || producto.imagenUrl}
+                              alt=""
+                              className="rounded border shadow-xs flex-shrink-0"
+                              style={{ width: "36px", height: "36px", objectFit: "cover" }}
+                              onError={(e) => {
+                                e.target.style.display = "none";
+                              }}
+                            />
+                          ) : (
+                            <div
+                              className="rounded bg-light d-flex align-items-center justify-content-center text-muted flex-shrink-0"
+                              style={{ width: "36px", height: "36px", fontSize: "0.8rem" }}
+                            >
+                              <i className="bi bi-box"></i>
                             </div>
-                            <div className="text-muted small text-truncate">
-                              Código: {producto.codigo}
-                            </div>
-                            <div className="d-flex align-items-center gap-3 mt-1">
-                              <span className="text-success fw-semibold">
-                                {formatPrice(producto.precioVenta)}
-                              </span>
-                              <span
-                                className={`badge ${
-                                  Number(producto.stockActual) > 0
-                                    ? "bg-success"
-                                    : "bg-secondary"
-                                }`}
-                              >
-                                {Number(producto.stockActual) > 0
-                                  ? `Stock: ${producto.stockActual}`
-                                  : "Sin stock"}
+                          )}
+                          <div className="min-w-0">
+                            <span className="fw-semibold small text-dark d-block text-truncate">{producto.nombre}</span>
+                            <div className="d-flex align-items-center gap-2">
+                              <span className="text-muted small">[Cód: {producto.codigo}]</span>
+                              <span className="text-success fw-bold small">{formatPrice(producto.precioVenta)}</span>
+                              <span className={`badge ${Number(producto.stockActual) > 0 ? "bg-success" : "bg-secondary"}`} style={{ fontSize: "0.68rem" }}>
+                                Stock: {producto.stockActual}
                               </span>
                             </div>
                           </div>
-                          <button
-                            type="button"
-                            className="btn btn-success text-nowrap"
-                            onClick={() => {
-                              agregarProducto(producto);
-                              setSearch("");
-                              focusScanner();
-                            }}
-                            disabled={Number(producto.stockActual) <= 0}
-                          >
-                            <i className="bi bi-plus-lg me-1"></i>Agregar
-                          </button>
                         </div>
-                      ))
-                    ) : (
-                      <div className="text-center text-muted py-4">
-                        No se encontraron productos para la búsqueda.
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-success py-1 px-2 flex-shrink-0"
+                          onClick={() => {
+                            agregarProducto(producto);
+                            setSearch("");
+                            focusScanner();
+                          }}
+                          disabled={Number(producto.stockActual) <= 0}
+                        >
+                          <i className="bi bi-plus-lg me-1"></i>Agregar
+                        </button>
                       </div>
-                    )}
-                  </div>
+                    ))
+                  ) : (
+                    <div className="text-center text-muted py-2 small">
+                      No se encontraron productos coincidentes.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -771,34 +948,39 @@ function Ventas() {
         </div>
       </div>
 
-      <div className="row g-4 align-items-start">
-        <div className="col-lg-8">
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-body">
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <div>
-                  <h5 className="fw-bold mb-1">
-                    <i className="bi bi-cart3 text-success me-2"></i>
-                    Carrito de la venta
-                  </h5>
-                  <p className="text-muted small mb-0">
-                    Ajusta cantidades y revisa el total antes de confirmar.
-                  </p>
-                </div>
-                <span className="badge bg-success-subtle text-success">
-                  {cart.length} ítem{cart.length === 1 ? "" : "s"}
-                </span>
-              </div>
+      {/* 3. ESPACIO PRINCIPAL POS EN 2 COLUMNAS (Carrito a la Izquierda, Cobro a la Derecha) */}
+      <div className="row g-2 align-items-start">
+        {/* COLUMNA IZQUIERDA: CARRITO DE LA VENTA */}
+        <div className="col-lg-7 col-xl-8">
+          <div className="card border-0 shadow-sm">
+            <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center border-bottom">
+              <span className="fw-bold small text-dark">
+                <i className="bi bi-cart-check text-success me-1"></i>
+                Carrito ({cart.length} producto{cart.length === 1 ? "" : "s"})
+              </span>
+              {cart.length > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-outline-danger btn-sm py-0 px-2"
+                  style={{ fontSize: "0.75rem" }}
+                  onClick={() => setCart([])}
+                  title="Vaciar carrito"
+                >
+                  <i className="bi bi-trash me-1"></i>Vaciar
+                </button>
+              )}
+            </div>
 
-              <div className="table-responsive mb-3">
-                <table className="table align-middle mb-0">
-                  <thead className="table-light">
+            <div className="card-body p-0">
+              <div className="table-responsive" style={{ maxHeight: "350px", minHeight: "180px", overflowY: "auto" }}>
+                <table className="table table-hover align-middle mb-0 small">
+                  <thead className="table-light sticky-top">
                     <tr>
-                      <th>Producto</th>
-                      <th className="text-center">Cant.</th>
-                      <th className="text-end">P. Unit.</th>
-                      <th className="text-end">Subtotal</th>
-                      <th className="text-center" style={{ width: 50 }}></th>
+                      <th style={{ width: "42%" }}>Producto</th>
+                      <th className="text-center" style={{ width: "24%" }}>Cantidad</th>
+                      <th className="text-end" style={{ width: "16%" }}>P. Unit</th>
+                      <th className="text-end" style={{ width: "18%" }}>Subtotal</th>
+                      <th style={{ width: "35px" }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -806,68 +988,70 @@ function Ventas() {
                       cart.map((item) => (
                         <tr key={item._id}>
                           <td>
-                            <div className="fw-semibold">{item.nombre}</div>
-                            <div className="text-muted small">
-                              Stock: {item.stockActual}
+                            <div className="d-flex align-items-center gap-2">
+                              {(item.imagen || item.imagenUrl) ? (
+                                <img
+                                  src={item.imagen || item.imagenUrl}
+                                  alt=""
+                                  className="rounded border flex-shrink-0"
+                                  style={{ width: "32px", height: "32px", objectFit: "cover" }}
+                                  onError={(e) => {
+                                    e.target.style.display = "none";
+                                  }}
+                                />
+                              ) : null}
+                              <div className="min-w-0">
+                                <div className="fw-semibold text-dark text-truncate" style={{ maxWidth: "200px" }}>
+                                  {item.nombre}
+                                </div>
+                                <div className="text-muted" style={{ fontSize: "0.72rem" }}>
+                                  Stock: {item.stockActual}
+                                </div>
+                              </div>
                             </div>
                           </td>
-                          <td className="text-center" style={{ width: 170 }}>
-                            <div className="input-group">
+                          <td className="text-center">
+                            <div className="input-group input-group-sm justify-content-center" style={{ maxWidth: "115px", margin: "0 auto" }}>
                               <button
                                 type="button"
-                                className="btn btn-outline-secondary"
-                                title="Disminuir cantidad"
+                                className="btn btn-outline-secondary py-0 px-2"
                                 disabled={Number(item.cantidad) <= 1}
-                                onClick={() =>
-                                  cambiarCantidad(
-                                    item._id,
-                                    Number(item.cantidad) - 1,
-                                  )
-                                }
+                                onClick={() => cambiarCantidad(item._id, Number(item.cantidad) - 1)}
                               >
-                                <i className="bi bi-dash"></i>
+                                -
                               </button>
                               <input
                                 type="number"
-                                className="form-control text-center"
+                                className="form-control text-center p-0 fw-bold"
                                 min="1"
                                 max={item.stockActual}
                                 value={item.cantidad}
-                                onChange={(e) =>
-                                  cambiarCantidad(item._id, e.target.value)
-                                }
+                                onChange={(e) => cambiarCantidad(item._id, e.target.value)}
                               />
                               <button
                                 type="button"
-                                className="btn btn-outline-secondary"
-                                title="Aumentar cantidad"
-                                disabled={
-                                  Number(item.cantidad) >=
-                                  Number(item.stockActual)
-                                }
-                                onClick={() =>
-                                  cambiarCantidad(
-                                    item._id,
-                                    Number(item.cantidad) + 1,
-                                  )
-                                }
+                                className="btn btn-outline-secondary py-0 px-2"
+                                disabled={Number(item.cantidad) >= Number(item.stockActual)}
+                                onClick={() => cambiarCantidad(item._id, Number(item.cantidad) + 1)}
                               >
-                                <i className="bi bi-plus"></i>
+                                +
                               </button>
                             </div>
                           </td>
-                          <td className="text-end text-nowrap">
+                          <td className="text-end text-nowrap text-muted">
                             {formatPrice(item.precioUnitario)}
                           </td>
-                          <td className="text-end text-nowrap">
+                          <td className="text-end text-nowrap fw-bold text-success">
                             {formatPrice(item.subtotal)}
                           </td>
                           <td className="text-center">
                             <button
-                              className="btn btn-sm btn-outline-danger"
+                              type="button"
+                              className="btn btn-sm btn-outline-danger py-0 px-1 border-0"
                               onClick={() => eliminarProducto(item._id)}
+                              title="Quitar"
                             >
-                              <i className="bi bi-trash"></i>
+                              <i className="bi bi-x-circle"></i>
                             </button>
                           </td>
                         </tr>
@@ -875,212 +1059,167 @@ function Ventas() {
                     ) : (
                       <tr>
                         <td colSpan="5" className="text-center text-muted py-5">
-                          <i className="bi bi-cart-x fs-3 d-block mb-2"></i>
-                          El carrito está vacío. Escanea un producto para
-                          comenzar.
+                          <i className="bi bi-cart-x fs-3 d-block mb-1 text-muted"></i>
+                          El carrito está vacío. Escanea o busca un producto arriba.
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-
-              <div className="border-top pt-3">
-                <div className="d-flex justify-content-between mb-2">
-                  <span className="text-muted">Subtotal</span>
-                  <strong>{formatPrice(subtotal)}</strong>
-                </div>
-                <div className="d-flex justify-content-between mb-3">
-                  <span className="text-muted">Descuento</span>
-                  <strong>- {formatPrice(descuento)}</strong>
-                </div>
-                <div className="d-flex justify-content-between align-items-center bg-success-subtle rounded-3 px-3 py-3">
-                  <span className="fw-bold fs-5">Total</span>
-                  <span className="fw-bold text-success fs-2">
-                    {formatPrice(total)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="d-grid gap-2 mt-4">
-                <button
-                  className="btn btn-success btn-lg d-none d-lg-block"
-                  onClick={abrirCobro}
-                  disabled={saving}
-                >
-                  <i className="bi bi-cash-coin me-1"></i>
-                  Cobrar {formatPrice(total)}
-                </button>
-                <button
-                  className="btn btn-outline-success"
-                  onClick={guardarBorrador}
-                  disabled={saving}
-                >
-                  <i className="bi bi-save me-1"></i>Guardar borrador
-                </button>
-                <button
-                  className="btn btn-outline-secondary"
-                  onClick={cancelar}
-                >
-                  <i className="bi bi-x-lg me-1"></i>Cancelar
-                </button>
-              </div>
             </div>
           </div>
         </div>
 
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-body">
-              <h5 className="fw-bold mb-3">Datos de la venta</h5>
-
-              <div className="mb-3">
-                <label className="form-label small text-muted">Cliente</label>
-                <div className="input-group">
-                  <select
-                    className="form-select"
-                    name="cliente"
-                    value={form.cliente}
-                    onChange={handleFormChange}
-                    disabled={loadingClientes}
-                  >
-                    <option value="">Consumidor Final</option>
-                    {clientes.map((cliente) => (
-                      <option key={cliente._id} value={cliente._id}>
-                        {cliente.nombre} - {cliente.rut}
-                      </option>
-                    ))}
-                  </select>
+        {/* COLUMNA DERECHA: PANEL DE COBRO Y DATOS DE LA VENTA */}
+        <div className="col-lg-5 col-xl-4">
+          <div className="card border-0 shadow-sm bg-light">
+            <div className="card-body p-3">
+              {/* Cliente */}
+              <div className="mb-2">
+                <div className="d-flex justify-content-between align-items-center mb-1">
+                  <label className="form-label small fw-bold mb-0">Cliente</label>
                   <button
                     type="button"
-                    className="btn btn-outline-success"
-                    title="Nuevo cliente exprés"
+                    className="btn btn-link text-success p-0 small text-decoration-none fw-semibold"
                     onClick={() => setShowNuevoCliente(true)}
                   >
-                    <i className="bi bi-person-plus"></i>
+                    + Nuevo Cliente
                   </button>
                 </div>
-                {esFiado && (
-                  <div className="small text-muted mt-1">
-                    La venta fiada requiere cliente obligatorio.
-                  </div>
-                )}
-              </div>
-
-              <div className="mb-3">
-                <label className="form-label small text-muted">
-                  Método de pago
-                </label>
                 <select
-                  className="form-select"
-                  name="metodoPago"
-                  value={form.metodoPago}
+                  className="form-select form-select-sm"
+                  name="cliente"
+                  value={form.cliente}
                   onChange={handleFormChange}
+                  disabled={loadingClientes}
                 >
-                  <option value="EFECTIVO">Efectivo</option>
-                  <option value="DEBITO">Débito</option>
-                  <option value="CREDITO">Crédito</option>
-                  <option value="TRANSFERENCIA">Transferencia</option>
-                  <option value="CAJA_VECINA">Caja Vecina</option>
-                  <option value="FIADO">FIADO</option>
+                  <option value="">Consumidor Final</option>
+                  {clientes.map((cliente) => (
+                    <option key={cliente._id} value={cliente._id}>
+                      {cliente.nombre} {cliente.rut ? `(${cliente.rut})` : ""}
+                    </option>
+                  ))}
                 </select>
               </div>
 
-              {esFiado && (
-                <div className="alert alert-warning py-2 small">
-                  <div className="fw-semibold mb-1">Venta fiada</div>
-                  <div>
-                    Cliente:{" "}
-                    <strong>
-                      {clienteSeleccionado?.nombre || "Seleccione un cliente"}
-                    </strong>
+              {/* Método de Pago con Botones Rápidos Táctiles */}
+              <div className="mb-2">
+                <label className="form-label small fw-bold mb-1">Método de Pago</label>
+                <div className="row g-1 row-cols-2 row-cols-md-4">
+                  <div className="col">
+                    <button
+                      type="button"
+                      className={`btn btn-sm w-100 fw-semibold py-2 py-md-1 ${form.metodoPago === "EFECTIVO" ? "btn-success shadow-sm" : "btn-outline-secondary"}`}
+                      onClick={() => setForm((prev) => ({ ...prev, metodoPago: "EFECTIVO" }))}
+                    >
+                      <i className="bi bi-cash me-1"></i>Efectivo
+                    </button>
                   </div>
-                  {form.cliente ? (
-                    loadingSaldo ? (
-                      <div className="text-muted">Consultando saldo...</div>
-                    ) : saldoCliente ? (
-                      <>
-                        <div className="d-flex justify-content-between">
-                          <span>Deuda actual</span>
-                          <strong>{formatoMoneda(saldoCliente.saldoPendiente)}</strong>
-                        </div>
-                        <div className="d-flex justify-content-between">
-                          <span>Esta venta</span>
-                          <strong>{formatoMoneda(total)}</strong>
-                        </div>
-                        <div className="d-flex justify-content-between">
-                          <span>Nueva deuda</span>
-                          <strong>
-                            {formatoMoneda(
-                              Number(saldoCliente.saldoPendiente || 0) + total,
-                            )}
-                          </strong>
-                        </div>
-                        <div className="d-flex justify-content-between border-top pt-1 mt-1">
-                          <span>Límite de fiado</span>
-                          <span>{formatoMoneda(saldoCliente.limiteFiado)}</span>
-                        </div>
-                        <div className="d-flex justify-content-between">
-                          <span>Disponible</span>
-                          <span
-                            className={
-                              total > Number(saldoCliente.disponible || 0)
-                                ? "text-danger fw-semibold"
-                                : ""
-                            }
-                          >
-                            {formatoMoneda(saldoCliente.disponible)}
-                          </span>
-                        </div>
-                        {Number(saldoCliente.limiteFiado || 0) <= 0 ? (
-                          <div className="text-danger fw-semibold mt-1">
-                            El cliente no tiene crédito disponible.
-                          </div>
-                        ) : total > Number(saldoCliente.disponible || 0) ? (
-                          <div className="text-danger fw-semibold mt-1">
-                            Esta venta supera el crédito disponible.
-                          </div>
-                        ) : null}
-                      </>
-                    ) : (
-                      <div className="text-danger">
-                        No se pudo consultar el saldo del cliente.
-                      </div>
-                    )
-                  ) : null}
+                  <div className="col">
+                    <button
+                      type="button"
+                      className={`btn btn-sm w-100 fw-semibold py-2 py-md-1 ${form.metodoPago === "DEBITO" ? "btn-primary shadow-sm" : "btn-outline-secondary"}`}
+                      onClick={() => setForm((prev) => ({ ...prev, metodoPago: "DEBITO" }))}
+                    >
+                      <i className="bi bi-credit-card me-1"></i>Débito
+                    </button>
+                  </div>
+                  <div className="col">
+                    <button
+                      type="button"
+                      className={`btn btn-sm w-100 fw-semibold py-2 py-md-1 ${form.metodoPago === "TRANSFERENCIA" ? "btn-info text-white shadow-sm" : "btn-outline-secondary"}`}
+                      onClick={() => setForm((prev) => ({ ...prev, metodoPago: "TRANSFERENCIA" }))}
+                    >
+                      <i className="bi bi-bank me-1"></i>Transf.
+                    </button>
+                  </div>
+                  <div className="col">
+                    <button
+                      type="button"
+                      className={`btn btn-sm w-100 fw-semibold py-2 py-md-1 ${form.metodoPago === METODO_FIADO ? "btn-danger shadow-sm" : "btn-outline-secondary"}`}
+                      onClick={() => setForm((prev) => ({ ...prev, metodoPago: METODO_FIADO }))}
+                    >
+                      <i className="bi bi-person-fill-exclamation me-1"></i>Fiado
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Alerta si es Fiado */}
+              {esFiado && (
+                <div className="alert alert-warning py-1 px-2 small mb-2">
+                  <div className="d-flex justify-content-between">
+                    <span>Deuda actual:</span>
+                    <strong>{formatoMoneda(saldoCliente?.saldoPendiente || 0)}</strong>
+                  </div>
+                  <div className="d-flex justify-content-between">
+                    <span>Crédito disponible:</span>
+                    <strong>{formatoMoneda(saldoCliente?.disponible || 0)}</strong>
+                  </div>
                 </div>
               )}
 
-              <div className="mb-3">
-                <label className="form-label small text-muted">
-                  Observaciones
-                </label>
-                <textarea
-                  className="form-control"
-                  name="observaciones"
-                  rows="3"
-                  placeholder="Notas internas de la venta"
-                  value={form.observaciones}
-                  onChange={handleFormChange}
-                ></textarea>
-              </div>
-
-              <div className="mb-3">
-                <label className="form-label small text-muted">Descuento</label>
+              {/* Descuento Inline */}
+              <div className="d-flex align-items-center justify-content-between mb-2">
+                <label className="form-label small text-muted mb-0">Descuento ($):</label>
                 <input
                   type="number"
-                  className="form-control"
+                  className="form-control form-control-sm text-end"
+                  style={{ width: "110px" }}
                   name="descuento"
                   min="0"
-                  step="1"
+                  step="100"
                   value={form.descuento}
                   onChange={handleFormChange}
                 />
               </div>
+
+              {/* BANNER DE TOTAL GIGANTE */}
+              <div className="bg-success text-white rounded p-3 text-center mb-2 shadow-sm">
+                <span className="small text-white-50 d-block">TOTAL A COBRAR</span>
+                <div className="fs-1 fw-bold line-height-1">
+                  {formatPrice(total)}
+                </div>
+                {descuento > 0 && (
+                  <span className="badge bg-light text-dark mt-1">
+                    Ahorro: -{formatPrice(descuento)}
+                  </span>
+                )}
+              </div>
+
+              {/* BOTÓN PRINCIPAL DE COBRO */}
+              <div className="d-grid gap-2 mb-3">
+                <button
+                  type="button"
+                  className="btn btn-success btn-lg fw-bold shadow-sm py-3 py-md-2"
+                  onClick={abrirCobro}
+                  disabled={saving || cart.length === 0}
+                >
+                  <i className="bi bi-cash-coin me-2"></i>
+                  Cobrar {formatPrice(total)} <span className="d-none d-md-inline">(F1)</span>
+                </button>
+                <div className="d-flex gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-outline-success btn-sm flex-grow-1"
+                    onClick={guardarBorrador}
+                    disabled={saving || cart.length === 0}
+                  >
+                    <i className="bi bi-save me-1"></i>Borrador
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary btn-sm"
+                    onClick={cancelar}
+                  >
+                    <i className="bi bi-x-lg me-1"></i>Cancelar (ESC)
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-
-          </div>
+        </div>
       </div>
 
       <div className="card border-0 shadow-sm mt-4">

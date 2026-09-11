@@ -1,0 +1,33 @@
+================================================================================
+           🌴 LA PALMERA POS - VERSIÓN 22 (v22.0.0) 🌴
+           Sistema Integral de Punto de Venta & Abastecimiento
+================================================================================
+
+NOVEDADES Y MEJORAS DE LA VERSIÓN 22:
+
+1. 📊 REPORTE DE VENTAS POR MÉTODO DE PAGO CORREGIDO Y COMPLETO:
+   - Sincronización completa de métricas en Reportes: desglose exacto por Efectivo, Débito, Transferencia y Fiado.
+   - Cálculo corregido del Total Vendido, Transacciones y Ticket Promedio en tiempo real.
+   - Barras visuales de porcentaje con colores identificativos para cada medio de pago.
+
+2. 🧹 HISTORIAL DE VENTAS DEPURADO:
+   - Se eliminaron los métodos obsoletos "Crédito" y "Caja Vecina" del filtro y de las etiquetas del Historial de Ventas y de Reportes.
+   - Solo se muestran los medios utilizados por el negocio: Efectivo, Débito, Transferencia y Fiado.
+
+3. 🇨🇱 CONTROL Y VALIDACIÓN ESTRICTA DE RUT CHILENO:
+   - Formateo automático al escribir (puntos y guion: ej. 12.345.678-5 / 76.123.456-7).
+   - Validación algorítmica con Módulo 11 en creación de Clientes, Clientes Exprés en Ventas, Proveedores y Compras.
+   - Bloqueo de RUTs inválidos para asegurar la integridad de la base de datos.
+
+4. 🖥️ COMPORTAMIENTO MEJORADO DE VENTANA Y PANTALLA COMPLETA:
+   - Al presionar ESC sin modales abiertos, la aplicación pasa a modo ventana de manera fluida.
+   - Al hacer clic en el botón de Maximizar de Windows (o F11), el sistema regresa a Pantalla Completa automáticamente.
+   - Omitir intro animada inmediatamente al presionar cualquier tecla o hacer clic.
+
+5. 📦 INSTALADOR OFICIAL DE WINDOWS:
+   - Incluye el instalador gráfico `LaPalmera-Setup.exe`.
+   - Acceso directo automático en el Escritorio y Menú Inicio.
+
+================================================================================
+Desarrollado con ❤️ para Minimarket La Palmera por MixelTNT • 2026
+================================================================================

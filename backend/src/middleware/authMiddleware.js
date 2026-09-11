@@ -1,11 +1,12 @@
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
+import { query } from "../config/postgres.js";
 
 export async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({
+      success: false,
       mensaje: "Acceso denegado. Token no proporcionado.",
     });
   }
@@ -13,21 +14,27 @@ export async function authMiddleware(req, res, next) {
   const token = authHeader.split(" ")[1];
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const secret = process.env.JWT_SECRET || "la_palmera_secret_key_2026";
+    const decoded = jwt.verify(token, secret);
 
-    const user = await User.findById(decoded.id).select("-password");
+    const userRes = await query(
+      "SELECT id, sqlite_id, username, nombre, apellido, rol, activo, email FROM usuarios WHERE id = $1",
+      [decoded.id]
+    );
 
-    if (!user || !user.activo) {
+    if (userRes.rows.length === 0 || !userRes.rows[0].activo) {
       return res.status(401).json({
+        success: false,
         mensaje: "Token inválido o usuario inactivo.",
       });
     }
 
-    req.usuario = user;
+    req.usuario = userRes.rows[0];
     next();
   } catch (error) {
     return res.status(401).json({
-      mensaje: "Token no válido.",
+      success: false,
+      mensaje: "Token no válido o expirado.",
     });
   }
 }

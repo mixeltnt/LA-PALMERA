@@ -1,0 +1,384 @@
+/* ============================================================
+   INTRO ANIMADA: PERRO SALCHICHA ENTRANDO AL PUNTO DE VENTA (5s)
+   ============================================================ */
+
+.lp-intro-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #041f17;
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+}
+
+.lp-intro-fadeout {
+  opacity: 0;
+  transform: scale(1.04);
+  pointer-events: none;
+}
+
+.lp-intro-bg {
+  position: absolute;
+  inset: 0;
+  background-image: url('/login-bg.jpg');
+  background-size: cover;
+  background-position: center center;
+  filter: blur(4px) brightness(0.65);
+  transform: scale(1.05);
+  animation: lp-bg-zoom 5s ease-out forwards;
+}
+
+@keyframes lp-bg-zoom {
+  0% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1.02);
+  }
+}
+
+.lp-intro-overlay-dark {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at center,
+    rgba(3, 26, 19, 0.4) 0%,
+    rgba(2, 20, 14, 0.85) 75%,
+    rgba(1, 10, 7, 0.96) 100%
+  );
+}
+
+.lp-intro-stage {
+  position: relative;
+  z-index: 2;
+  width: 90%;
+  max-width: 820px;
+  background: rgba(6, 36, 27, 0.88);
+  border: 1.5px solid rgba(52, 211, 153, 0.4);
+  border-radius: 28px;
+  padding: 36px 32px 28px 32px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    0 30px 80px -15px rgba(0, 0, 0, 0.95),
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 1px 2px rgba(255, 255, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  animation: lp-stage-pop 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes lp-stage-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(24px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Header */
+.lp-intro-header {
+  margin-bottom: 24px;
+}
+
+.lp-intro-badge {
+  display: inline-block;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.15);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  padding: 4px 14px;
+  border-radius: 20px;
+  margin-bottom: 8px;
+}
+
+.lp-intro-title {
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: -0.5px;
+  color: #ffffff;
+  margin: 0;
+  text-shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
+}
+
+/* Pista de entrada animada */
+.lp-intro-track-scene {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.5) 100%);
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: flex-end;
+}
+
+/* Mostrador / Caja a la derecha */
+.lp-intro-pos-target {
+  position: absolute;
+  right: 28px;
+  bottom: 12px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: lp-pos-glow 2s infinite ease-in-out;
+}
+
+@keyframes lp-pos-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 10px rgba(52, 211, 153, 0.3));
+  }
+  50% {
+    filter: drop-shadow(0 0 20px rgba(52, 211, 153, 0.7));
+  }
+}
+
+.lp-pos-machine {
+  font-size: 2.8rem;
+  color: #34d399;
+  position: relative;
+  line-height: 1;
+}
+
+.lp-pos-cash-icon {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  font-size: 1.4rem;
+  animation: lp-coin-bounce 1s infinite alternate ease-in-out;
+}
+
+@keyframes lp-coin-bounce {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-8px);
+  }
+}
+
+.lp-pos-counter-wood {
+  background: #8a5a33;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  padding: 4px 16px;
+  border-radius: 6px;
+  border: 1.5px solid #5b3317;
+  margin-top: -4px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+}
+
+/* Perro Salchicha Corriendo / Entrando */
+.lp-intro-dog-runner {
+  position: absolute;
+  bottom: 16px;
+  left: -120px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: lp-dog-run 4.6s cubic-bezier(0.2, 0.8, 0.25, 1) forwards;
+}
+
+@keyframes lp-dog-run {
+  0% {
+    left: -120px;
+    transform: scale(0.7) translateY(0);
+  }
+  20% {
+    left: 15%;
+    transform: scale(0.85) translateY(-6px);
+  }
+  40% {
+    left: 35%;
+    transform: scale(0.95) translateY(0);
+  }
+  65% {
+    left: 55%;
+    transform: scale(1.05) translateY(-8px);
+  }
+  85% {
+    left: 68%;
+    transform: scale(1.1) translateY(0);
+  }
+  100% {
+    left: 70%;
+    transform: scale(1.1) translateY(0);
+  }
+}
+
+.lp-dog-bubble {
+  background: #ffffff;
+  color: #064e3b;
+  font-size: 0.82rem;
+  font-weight: 800;
+  padding: 6px 12px;
+  border-radius: 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  animation: lp-bubble-wobble 1.2s infinite ease-in-out;
+  position: relative;
+}
+
+.lp-dog-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px 6px 0;
+  border-style: solid;
+  border-color: #ffffff transparent;
+  display: block;
+  width: 0;
+}
+
+@keyframes lp-bubble-wobble {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-4px) rotate(2deg); }
+}
+
+.lp-dog-sprite-wrap {
+  width: 100px;
+  height: 90px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: lp-dog-trot 0.35s infinite alternate ease-in-out;
+}
+
+@keyframes lp-dog-trot {
+  0% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  100% {
+    transform: translateY(-10px) rotate(4deg);
+  }
+}
+
+.lp-dog-mascot-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 12px rgba(0,0,0,0.6));
+}
+
+.lp-dog-paws-shadow {
+  position: absolute;
+  bottom: 0;
+  width: 65px;
+  height: 10px;
+  background: rgba(0,0,0,0.45);
+  border-radius: 50%;
+  filter: blur(2px);
+}
+
+/* Huellas */
+.lp-paw-trail {
+  position: absolute;
+  left: -60px;
+  bottom: 6px;
+  display: flex;
+  gap: 16px;
+}
+
+.lp-paw {
+  font-size: 0.9rem;
+  opacity: 0.5;
+  animation: lp-paw-fade 1s infinite alternate;
+}
+
+.lp-paw.p1 { animation-delay: 0.1s; }
+.lp-paw.p2 { animation-delay: 0.3s; }
+.lp-paw.p3 { animation-delay: 0.5s; }
+
+@keyframes lp-paw-fade {
+  from { opacity: 0.2; transform: scale(0.8); }
+  to { opacity: 0.7; transform: scale(1.1); }
+}
+
+/* Footer Box */
+.lp-intro-footer-box {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.lp-intro-status-text {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.2px;
+}
+
+.lp-intro-status-sub {
+  font-size: 0.88rem;
+  color: #34d399;
+  font-weight: 500;
+}
+
+/* Barra de progreso */
+.lp-intro-progress-bar-wrap {
+  width: 100%;
+  max-width: 480px;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  margin-top: 6px;
+}
+
+.lp-intro-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #34d399 50%, #6ee7b7 100%);
+  border-radius: 10px;
+  transition: width 0.04s linear;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.8);
+}
+
+.lp-intro-skip-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 480px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.76rem;
+  margin-top: 4px;
+}
+
+.lp-intro-skip-hint strong {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.lp-intro-timer-seconds {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  color: #34d399;
+}

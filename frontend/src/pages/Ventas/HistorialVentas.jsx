@@ -6,15 +6,14 @@ import TicketVenta from "../../components/Ventas/TicketVenta";
 const METODO_PAGO_LABELS = {
   EFECTIVO: "Efectivo",
   DEBITO: "Débito",
-  CREDITO: "Crédito",
   TRANSFERENCIA: "Transferencia",
-  CAJA_VECINA: "Caja Vecina",
   FIADO: "Fiado",
 };
 
 const ESTADO_BADGE = {
   BORRADOR: { label: "Borrador", className: "bg-secondary" },
   CONFIRMADA: { label: "Confirmada", className: "bg-success" },
+  COMPLETADA: { label: "Confirmada", className: "bg-success" },
   ANULADA: { label: "Anulada", className: "bg-danger" },
 };
 
@@ -96,19 +95,46 @@ function HistorialVentas() {
   };
 
   const confirmarAnulacion = async () => {
-    if (!anularVenta) return;
+    if (!anularVenta || anulando) return;
+    const ventaIdTarget = anularVenta._id || anularVenta.id;
+    const numVentaTarget = anularVenta.numeroVenta || anularVenta.folio;
     setAnulando(true);
     try {
-      await ventaService.anular(anularVenta._id);
+      await ventaService.anular(ventaIdTarget);
       setAnularVenta(null);
+      setVentas((prev) =>
+        prev.map((v) =>
+          String(v._id || v.id) === String(ventaIdTarget)
+            ? { ...v, estado: "anulada" }
+            : v
+        )
+      );
       setToast({
         type: "success",
-        text: `Venta #${anularVenta.numeroVenta} anulada correctamente.`,
+        text: `Venta #${numVentaTarget} anulada correctamente y stock devuelto a inventario.`,
       });
+      setError("");
       void cargar();
     } catch (err) {
+      const msg = err.message || "";
       setAnularVenta(null);
-      setError(err.message || "Error al anular la venta.");
+      if (msg.toLowerCase().includes("ya está anulada")) {
+        setVentas((prev) =>
+          prev.map((v) =>
+            String(v._id || v.id) === String(ventaIdTarget)
+              ? { ...v, estado: "anulada" }
+              : v
+          )
+        );
+        setToast({
+          type: "info",
+          text: `La venta #${numVentaTarget} ya se encontraba anulada.`,
+        });
+        setError("");
+        void cargar();
+      } else {
+        setError(msg || "Error al anular la venta.");
+      }
     } finally {
       setAnulando(false);
     }
@@ -177,9 +203,7 @@ function HistorialVentas() {
                 <option value="">Todos los métodos de pago</option>
                 <option value="EFECTIVO">Efectivo</option>
                 <option value="DEBITO">Débito</option>
-                <option value="CREDITO">Crédito</option>
                 <option value="TRANSFERENCIA">Transferencia</option>
-                <option value="CAJA_VECINA">Caja Vecina</option>
                 <option value="FIADO">Fiado</option>
               </select>
             </div>
@@ -216,8 +240,9 @@ function HistorialVentas() {
                   <tbody>
                     {ventas.length > 0 ? (
                       ventas.map((venta) => {
-                        const estado = ESTADO_BADGE[venta.estado] || {
-                          label: venta.estado,
+                        const estadoKey = String(venta.estado || "").toUpperCase();
+                        const estado = ESTADO_BADGE[estadoKey] || {
+                          label: venta.estado || "Borrador",
                           className: "bg-secondary",
                         };
                         return (
@@ -233,8 +258,10 @@ function HistorialVentas() {
                               {formatMoney(venta.total)}
                             </td>
                             <td>
-                              {METODO_PAGO_LABELS[venta.metodoPago] ||
-                                venta.metodoPago}
+                              {METODO_PAGO_LABELS[String(venta.metodoPago || venta.metodoPagoPrincipal || "").toUpperCase()] ||
+                                venta.metodoPago ||
+                                venta.metodoPagoPrincipal ||
+                                "Efectivo"}
                             </td>
                             <td>
                               <span className={`badge ${estado.className}`}>
@@ -242,7 +269,7 @@ function HistorialVentas() {
                               </span>
                             </td>
                             <td>
-                              {venta.usuario?.nombre || venta.usuario?.usuario}
+                              {venta.usuario?.nombre || venta.cajeroNombre || venta.usuario?.username || 'Yasna'}
                             </td>
                             <td className="text-center">
                               <button
@@ -256,14 +283,12 @@ function HistorialVentas() {
                                 className="btn btn-sm btn-outline-danger btn-icon"
                                 onClick={() => setAnularVenta(venta)}
                                 disabled={
-                                  venta.estado === "ANULADA" || !esAdmin
+                                  String(venta.estado || "").toLowerCase() === "anulada"
                                 }
                                 title={
-                                  !esAdmin
-                                    ? "Solo administradores"
-                                    : venta.estado === "ANULADA"
-                                      ? "Venta ya anulada"
-                                      : "Anular venta"
+                                  String(venta.estado || "").toLowerCase() === "anulada"
+                                    ? "Venta ya anulada"
+                                    : "Anular venta"
                                 }
                               >
                                 <i className="bi bi-x-circle"></i>
@@ -420,21 +445,21 @@ function HistorialVentas() {
                           </tr>
                         </thead>
                         <tbody>
-                          {(detalle.detalles || []).map((item) => (
-                            <tr key={item._id}>
+                          {((detalle.detalles && detalle.detalles.length > 0) ? detalle.detalles : (detalle.venta?.items || [])).map((item, idx) => (
+                            <tr key={item._id || item.id || idx}>
                               <td>
                                 <div className="fw-semibold">
-                                  {item.producto?.nombre || "Producto eliminado"}
+                                  {item.producto?.nombre || item.nombre || "Producto"}
                                 </div>
-                                {item.producto?.codigo && (
+                                {(item.producto?.codigo || item.codigo) && (
                                   <div className="text-muted small">
-                                    {item.producto.codigo}
+                                    {item.producto?.codigo || item.codigo}
                                   </div>
                                 )}
                               </td>
                               <td className="text-center">{item.cantidad}</td>
                               <td className="text-end">
-                                {formatMoney(item.precioUnitario)}
+                                {formatMoney(item.precioUnitario || item.precio)}
                               </td>
                               <td className="text-end">
                                 {item.descuento
@@ -472,7 +497,7 @@ function HistorialVentas() {
                 )}
               </div>
               <div className="modal-footer">
-                {detalle.venta.estado === "CONFIRMADA" && (
+                {(String(detalle.venta.estado || "").toUpperCase() === "CONFIRMADA" || String(detalle.venta.estado || "").toUpperCase() === "COMPLETADA") && (
                   <button
                     type="button"
                     className="btn btn-success me-auto"
