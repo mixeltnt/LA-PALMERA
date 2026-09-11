@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import { dashboardController } from "../controllers/dashboardController.js";
 import { authApiKeyOrJwt } from "../middleware/authApiKey.js";
 
@@ -8,5 +8,8 @@ router.use(authApiKeyOrJwt);
 
 // GET /api/dashboard/resumen
 router.get("/resumen", dashboardController.getResumen);
+
+// GET /api/dashboard/ventas-recientes
+router.get("/ventas-recientes", dashboardController.getVentasRecientes);
 
 export default router;

@@ -1,10 +1,10 @@
-// Controlador de Dashboard para futuro Panel Web y Aplicación Móvil - La Palmera POS
+﻿// Controlador de Dashboard para futuro Panel Web y Aplicación Móvil - La Palmera POS
 import { query } from '../config/postgres.js';
 
 export const dashboardController = {
   getResumen: async (req, res) => {
     try {
-      const [hoyRes, mesRes, topProdsRes, stockBajoRes, ultimasVentasRes] = await Promise.all([
+      const [hoyRes, mesRes, topProdsRes, stockBajoRes, ultimasVentasRes, deudasRes] = await Promise.all([
         // 1. Ventas de hoy
         query(`
           SELECT 
@@ -55,30 +55,56 @@ export const dashboardController = {
         // 5. Últimas 10 ventas registradas
         query(`
           SELECT 
-            id, folio, numero_boleta, fecha, cliente_nombre, total, metodo_pago_principal, estado
+            id, sqlite_id, folio, numero_boleta, fecha, cliente_nombre, total,
+            metodo_pago_principal as metodo_pago, estado, creado_en
           FROM ventas 
           ORDER BY fecha DESC, id DESC
           LIMIT 10
+        `),
+
+        // 6. Deudas de clientes
+        query(`
+          SELECT 
+            COUNT(*) as clientes_deudores,
+            COALESCE(SUM(saldo_deudor), 0) as total_deuda
+          FROM clientes
+          WHERE activo = TRUE AND saldo_deudor > 0
         `),
       ]);
 
       const hoyData = hoyRes.rows[0] || {};
       const mesData = mesRes.rows[0] || {};
+      const deudaData = deudasRes?.rows?.[0] || {};
+
+      const montoHoy = Number(hoyData.total_hoy || 0);
+      const totalVentasHoy = Number(hoyData.cantidad_hoy || 0);
+      const montoMes = Number(mesData.total_mes || 0);
+      const totalVentasMes = Number(mesData.cantidad_mes || 0);
+      const ticketPromedio = totalVentasHoy > 0 ? Math.round(montoHoy / totalVentasHoy) : (totalVentasMes > 0 ? Math.round(montoMes / totalVentasMes) : 0);
 
       return res.json({
         success: true,
+        montoHoy,
+        totalVentasHoy,
+        montoMes,
+        totalVentasMes,
+        ticketPromedio,
+        productosBajoStock: stockBajoRes.rows.length,
+        clientesDeudores: Number(deudaData.clientes_deudores || 0),
+        totalDeudaClientes: Number(deudaData.total_deuda || 0),
+        ultimasVentas: ultimasVentasRes.rows,
         data: {
           hoy: {
-            total: Number(hoyData.total_hoy || 0),
-            cantidad: Number(hoyData.cantidad_hoy || 0),
+            total: montoHoy,
+            cantidad: totalVentasHoy,
             efectivo: Number(hoyData.efectivo_hoy || 0),
             debito: Number(hoyData.debito_hoy || 0),
             transferencia: Number(hoyData.transferencia_hoy || 0),
             fiado: Number(hoyData.fiado_hoy || 0),
           },
           mes: {
-            total: Number(mesData.total_mes || 0),
-            cantidad: Number(mesData.cantidad_mes || 0),
+            total: montoMes,
+            cantidad: totalVentasMes,
           },
           topProductos: topProdsRes.rows.map(r => ({
             codigo: r.codigo,
@@ -103,6 +129,29 @@ export const dashboardController = {
       return res.status(500).json({
         success: false,
         mensaje: 'Error generando métricas de dashboard',
+        error: error.message,
+      });
+    }
+  },
+
+  getVentasRecientes: async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 10, 50);
+      const { rows } = await query(`
+        SELECT 
+          id, sqlite_id, folio, numero_boleta, fecha, cliente_nombre, total,
+          metodo_pago_principal as metodo_pago, estado, creado_en
+        FROM ventas 
+        ORDER BY fecha DESC, id DESC
+        LIMIT $1
+      `, [limit]);
+
+      return res.json(rows);
+    } catch (error) {
+      console.error('[dashboardController] Error en getVentasRecientes:', error);
+      return res.status(500).json({
+        success: false,
+        mensaje: 'Error obteniendo ventas recientes',
         error: error.message,
       });
     }
