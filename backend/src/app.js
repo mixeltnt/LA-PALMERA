@@ -56,31 +56,26 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
+const publicAdminDir = fileURLToPath(new URL("../public/admin", import.meta.url));
 const adminDistDir = fileURLToPath(new URL("../../admin-web/dist", import.meta.url));
-const adminDistExiste = existsSync(path.join(adminDistDir, "index.html"));
 
-if (adminDistExiste) {
-  app.use("/admin", express.static(adminDistDir));
-  app.use("/panel", express.static(adminDistDir));
+const adminDir = existsSync(path.join(publicAdminDir, "index.html"))
+  ? publicAdminDir
+  : existsSync(path.join(adminDistDir, "index.html"))
+  ? adminDistDir
+  : null;
+
+if (adminDir) {
+  app.use(express.static(adminDir));
+  app.use("/admin", express.static(adminDir));
+  app.use("/panel", express.static(adminDir));
+  app.use("/assets", express.static(path.join(adminDir, "assets")));
+  
   app.use((req, res, next) => {
-    if (req.method === "GET" && (req.path.startsWith("/admin") || req.path.startsWith("/panel"))) {
-      return res.sendFile(path.join(adminDistDir, "index.html"));
+    if (req.method === "GET" && (req.path === "/" || req.path.startsWith("/admin") || req.path.startsWith("/panel"))) {
+      return res.sendFile(path.join(adminDir, "index.html"));
     }
     next();
-  });
-}
-
-const distDir = fileURLToPath(new URL("../../frontend/dist", import.meta.url));
-const distExiste = existsSync(path.join(distDir, "index.html"));
-
-if (distExiste) {
-  app.use(express.static(distDir));
-
-  app.use((req, res, next) => {
-    if (req.method !== "GET" || req.path.startsWith("/api") || req.path.startsWith("/admin") || req.path.startsWith("/panel")) {
-      return next();
-    }
-    res.sendFile(path.join(distDir, "index.html"));
   });
 }
 
