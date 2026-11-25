@@ -195,8 +195,11 @@ export const customerRepository = {
 
   async delete(id: string | number): Promise<boolean> {
     const db = await dbManager.getConnection();
-    await db.execute('DELETE FROM clientes WHERE id = ?', [Number(id)]);
-    await syncService.enqueueChange('clientes', id, 'DELETE', { id }).catch(() => {});
+    const numId = Number(id);
+    // Desvincular ventas históricas antes de eliminar el cliente para respetar PRAGMA foreign_keys = ON
+    await db.execute('UPDATE ventas SET cliente_id = NULL WHERE cliente_id = ?', [numId]).catch(() => {});
+    await db.execute('DELETE FROM clientes WHERE id = ?', [numId]);
+    await syncService.enqueueChange('clientes', numId, 'DELETE', { id: numId }).catch(() => {});
     return true;
   },
 

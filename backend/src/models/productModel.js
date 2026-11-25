@@ -32,6 +32,7 @@ const productSchema = new mongoose.Schema(
     stockActual: { type: Number, required: true, default: 0 },
     stockMinimo: { type: Number, default: 0 },
     unidadMedida: { type: String, default: "Unidad" },
+    permiteDecimales: { type: Boolean, default: false },
     imagen: { type: String, default: "" },
     activo: { type: Boolean, default: true },
   },

@@ -2,10 +2,33 @@
 // Implementa idempotencia en doble capa: por operation_id técnico y por entidad de negocio.
 import { getClient, query, getPostgresStatus } from '../config/postgres.js';
 
+function getChileDayFromTimestamp(rawFecha) {
+  const str = String(rawFecha || '').trim();
+  if (!str) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date());
+  }
+  const hasTzOffset = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(str);
+  if (!hasTzOffset) {
+    return str.slice(0, 10);
+  }
+  const parsed = new Date(str);
+  if (isNaN(parsed.getTime())) return str.slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(parsed);
+}
+
+function sqlTimestampParam(paramIdx, rawFecha) {
+  const str = String(rawFecha || '').trim();
+  const hasTzOffset = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(str);
+  return hasTzOffset
+    ? `$${paramIdx}::timestamptz`
+    : `($${paramIdx}::timestamp AT TIME ZONE 'America/Santiago')`;
+}
+
 export const syncPostgresService = {
   /**
    * Procesa un lote de operaciones pendientes enviadas desde SQLite local
-   * Cada operación se procesa de manera IDEMPOTENTE para evitar duplicados en reintentos.
+   * Cada operación se procesa de manera IDEMPOTENTE para evitar duplicados en reintentos
+   * y serializada con advisory lock transaccional + SAVEPOINT por ítem.
    */
   async processPushBatch(items, clientIp = '127.0.0.1') {
     if (!Array.isArray(items) || items.length === 0) {
@@ -19,8 +42,12 @@ export const syncPostgresService = {
 
     try {
       await client.query('BEGIN');
+      // Serializar lotes concurrentes de sincronización para evitar race conditions en folios y operation_id
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('lapalmera_sync_push_lock'))");
 
-      for (const item of items) {
+      for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+        const item = items[itemIndex];
+        const savepointName = `sp_sync_item_${itemIndex}`;
         const { id, tabla, registro_id, operacion, payload_json } = item;
         const operationId = item.operation_id || item.operationId || `op_${tabla}_${registro_id || id}_${Date.now()}`;
         let payload = {};
@@ -33,6 +60,7 @@ export const syncPostgresService = {
           continue;
         }
 
+        await client.query(`SAVEPOINT ${savepointName}`);
         try {
           // ===================================================================
           // CAPA 1: Idempotencia Técnica por operation_id
@@ -43,6 +71,7 @@ export const syncPostgresService = {
           );
 
           if (checkOp.rows.length > 0) {
+            await client.query(`RELEASE SAVEPOINT ${savepointName}`);
             results.push({
               id,
               operation_id: operationId,
@@ -50,6 +79,7 @@ export const syncPostgresService = {
               registro_id,
               status: 'synced',
               pg_id: checkOp.rows[0].resultado_pg_id,
+              folio: payload.folio ? Number(payload.folio) : undefined,
               note: 'Operación confirmada previamente por operation_id (Idempotencia)',
             });
             okCount++;
@@ -64,9 +94,11 @@ export const syncPostgresService = {
 
           // 1. VENTAS
           if (tabla === 'ventas' || tabla === 'venta') {
-            const folio = Number(payload.folio || payload.numeroVenta || payload.id || registro_id);
-            const numeroBoleta = payload.numeroBoleta || payload.numero_boleta || `BOL-${folio}`;
-            const fecha = payload.fecha || new Date().toISOString();
+            let folio = Number(payload.folio || payload.numeroVenta || payload.id || registro_id);
+            let numeroBoleta = payload.numeroBoleta || payload.numero_boleta || `BOL-${folio}`;
+            const rawFecha = String(payload.fecha || new Date().toISOString()).trim();
+            const hasTzOffset = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(rawFecha);
+            const fecha = rawFecha;
             const cajeroId = Number(payload.cajeroId || payload.cajero_id || 1);
             const cajeroNombre = payload.cajeroNombre || payload.cajero_nombre || 'Cajero';
             const subtotal = Number(payload.subtotal ?? payload.total ?? 0);
@@ -80,11 +112,22 @@ export const syncPostgresService = {
             const motivoAnulacion = payload.motivoAnulacion || payload.motivo_anulacion || null;
             const notas = payload.notas || null;
 
-            // Idempotencia por Folio único de venta
-            const checkVenta = await client.query('SELECT id, estado FROM ventas WHERE folio = $1', [folio]);
+            // Idempotencia por Folio + validación de colisión multi-dispositivo
+            const checkVenta = await client.query(
+              `SELECT id, estado, total, TO_CHAR(fecha AT TIME ZONE 'America/Santiago', 'YYYY-MM-DD') as fecha_dia
+               FROM ventas WHERE folio = $1`,
+              [folio]
+            );
 
-            if (checkVenta.rows.length > 0) {
-              pgResultId = checkVenta.rows[0].id;
+            const incomingDay = getChileDayFromTimestamp(rawFecha);
+            const existingMatch = checkVenta.rows.length > 0 ? checkVenta.rows[0] : null;
+            const isSameSale =
+              existingMatch &&
+              (operacion === 'UPDATE' ||
+                (Math.abs(Number(existingMatch.total) - total) < 0.01 && existingMatch.fecha_dia === incomingDay));
+
+            if (isSameSale) {
+              pgResultId = existingMatch.id;
               // Si cambió de estado (ej: anulada), actualizar
               await client.query(
                 `UPDATE ventas SET 
@@ -94,14 +137,35 @@ export const syncPostgresService = {
                 [estado, motivoAnulacion, notas, pgResultId]
               );
             } else {
+              // Si existe un folio distinto (ej: otro dispositivo o navegador reiniciado), asignar siguiente folio libre
+              if (existingMatch) {
+                const nextFolioRes = await client.query('SELECT COALESCE(MAX(folio), 0) + 1 as next_f FROM ventas');
+                folio = Number(nextFolioRes.rows[0]?.next_f || folio + 1);
+                numeroBoleta = `BOL-${folio}`;
+              }
+
               let clientePgId = null;
               if (payload.clienteId || payload.cliente_id || payload.cliente?.rut || payload.cliente?.id) {
                 const cRut = payload.cliente?.rut || payload.rut;
                 if (cRut) {
-                  const cRes = await client.query('SELECT id FROM clientes WHERE rut = $1', [cRut]);
+                  const cRes = await client.query('SELECT id FROM clientes WHERE rut = $1 LIMIT 1', [String(cRut).trim()]);
                   if (cRes.rows.length > 0) clientePgId = cRes.rows[0].id;
                 }
+                if (!clientePgId) {
+                  const rawCliId = Number(payload.clienteId || payload.cliente_id || payload.cliente?.id || 0);
+                  if (rawCliId > 0) {
+                    const cById = await client.query(
+                      'SELECT id FROM clientes WHERE sqlite_id = $1 OR id = $1 ORDER BY (sqlite_id = $1) DESC LIMIT 1',
+                      [rawCliId]
+                    );
+                    if (cById.rows.length > 0) clientePgId = cById.rows[0].id;
+                  }
+                }
               }
+
+              const fechaExpr = hasTzOffset
+                ? '$4::timestamptz'
+                : "($4::timestamp AT TIME ZONE 'America/Santiago')";
 
               const insertRes = await client.query(
                 `INSERT INTO ventas (
@@ -109,7 +173,7 @@ export const syncPostgresService = {
                   cliente_id, cliente_nombre, subtotal, descuento_total, impuesto_total,
                   total, monto_recibido, vuelto, metodo_pago_principal, estado,
                   motivo_anulacion, notas, sincronizado_en
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_TIMESTAMP)
+                ) VALUES ($1, $2, $3, ${fechaExpr}, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_TIMESTAMP)
                 RETURNING id`,
                 [
                   Number(payload.id || registro_id),
@@ -212,6 +276,7 @@ export const syncPostgresService = {
               okCount++;
             } else {
               if (!codigo) {
+                await client.query(`RELEASE SAVEPOINT ${savepointName}`);
                 results.push({ id, operation_id: operationId, tabla, registro_id, status: 'error', error: 'Código de producto vacío' });
                 failCount++;
                 continue;
@@ -422,7 +487,8 @@ export const syncPostgresService = {
             } else {
               const prRes = await client.query(
                 `INSERT INTO proveedores (sqlite_id, nombre, contacto, telefono, email, direccion, activo)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 RETURNING id`,
                 [
                   numId,
                   nombre,
@@ -448,11 +514,13 @@ export const syncPostgresService = {
             }
 
             if (clientePgId) {
+              const movFecha = payload.fecha || new Date().toISOString();
+              const movFechaExpr = sqlTimestampParam(7, movFecha);
               const movRes = await client.query(
                 `INSERT INTO cliente_movimientos (
                   sqlite_id, cliente_id, tipo_movimiento, monto, saldo_resultante,
                   observacion, fecha, estado
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ) VALUES ($1, $2, $3, $4, $5, $6, ${movFechaExpr}, $8)
                 RETURNING id`,
                 [
                   Number(payload.id || registro_id),
@@ -461,7 +529,7 @@ export const syncPostgresService = {
                   Number(payload.monto || 0),
                   Number(payload.saldo_resultante ?? payload.saldoResultante ?? 0),
                   payload.observacion || null,
-                  payload.fecha || new Date().toISOString(),
+                  movFecha,
                   payload.estado || 'ACTIVO',
                 ]
               );
@@ -473,48 +541,78 @@ export const syncPostgresService = {
 
           // 7. COMPRAS
           else if (tabla === 'compras' || tabla === 'compra') {
-            const folio = payload.folio ? Number(payload.folio) : null;
+            let folio = payload.folio ? Number(payload.folio) : null;
             const numeroFactura = payload.numeroFactura || payload.numero_factura || null;
+            const compraFecha = payload.fecha || new Date().toISOString();
+            const compraFechaExpr = sqlTimestampParam(5, compraFecha);
+            const compraTotal = Number(payload.total || 0);
 
-            const insertCompra = await client.query(
-              `INSERT INTO compras (
-                sqlite_id, folio, numero_factura, proveedor_nombre, fecha,
-                subtotal, impuesto_total, total, estado, usuario_nombre, notas
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-              RETURNING id`,
-              [
-                Number(payload.id || registro_id),
-                folio,
-                numeroFactura,
-                payload.proveedorNombre || payload.proveedor_nombre || null,
-                payload.fecha || new Date().toISOString(),
-                Number(payload.subtotal || 0),
-                Number(payload.impuestoTotal ?? payload.impuesto_total ?? 0),
-                Number(payload.total || 0),
-                payload.estado || 'completada',
-                payload.usuarioNombre || payload.usuario_nombre || 'Admin',
-                payload.notas || null,
-              ]
+            let existingCompra = null;
+            if (folio) {
+              const chk = await client.query(
+                `SELECT id, total, TO_CHAR(fecha AT TIME ZONE 'America/Santiago', 'YYYY-MM-DD') as fecha_dia FROM compras WHERE folio = $1`,
+                [folio]
+              );
+              if (chk.rows.length > 0) existingCompra = chk.rows[0];
+            }
+
+            const sameCompra = existingCompra && (
+              operacion === 'UPDATE' ||
+              (Math.abs(Number(existingCompra.total) - compraTotal) < 0.01 && existingCompra.fecha_dia === getChileDayFromTimestamp(compraFecha))
             );
 
-            pgResultId = insertCompra.rows[0].id;
-            const items = payload.items || payload.compra_items || [];
-            if (Array.isArray(items)) {
-              for (const it of items) {
-                await client.query(
-                  `INSERT INTO compra_items (
-                    sqlite_id, compra_id, codigo, nombre, cantidad, costo_unitario, subtotal
-                  ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                  [
-                    Number(it.id || 0),
-                    pgResultId,
-                    it.codigo || '',
-                    it.nombre || 'Item compra',
-                    Number(it.cantidad || 1),
-                    Number(it.costoUnitario ?? it.costo_unitario ?? 0),
-                    Number(it.subtotal || 0),
-                  ]
-                );
+            if (sameCompra) {
+              pgResultId = existingCompra.id;
+              await client.query(
+                `UPDATE compras SET estado = $1, notas = COALESCE($2, notas) WHERE id = $3`,
+                [payload.estado || 'completada', payload.notas || null, pgResultId]
+              );
+            } else {
+              if (existingCompra) {
+                const nextComp = await client.query('SELECT COALESCE(MAX(folio), 0) + 1 as next_f FROM compras');
+                folio = Number(nextComp.rows[0]?.next_f || folio + 1);
+              }
+
+              const insertCompra = await client.query(
+                `INSERT INTO compras (
+                  sqlite_id, folio, numero_factura, proveedor_nombre, fecha,
+                  subtotal, impuesto_total, total, estado, usuario_nombre, notas
+                ) VALUES ($1, $2, $3, $4, ${compraFechaExpr}, $6, $7, $8, $9, $10, $11)
+                RETURNING id`,
+                [
+                  Number(payload.id || registro_id),
+                  folio,
+                  numeroFactura,
+                  payload.proveedorNombre || payload.proveedor_nombre || null,
+                  compraFecha,
+                  Number(payload.subtotal || 0),
+                  Number(payload.impuestoTotal ?? payload.impuesto_total ?? 0),
+                  compraTotal,
+                  payload.estado || 'completada',
+                  payload.usuarioNombre || payload.usuario_nombre || 'Admin',
+                  payload.notas || null,
+                ]
+              );
+
+              pgResultId = insertCompra.rows[0].id;
+              const items = payload.items || payload.compra_items || [];
+              if (Array.isArray(items)) {
+                for (const it of items) {
+                  await client.query(
+                    `INSERT INTO compra_items (
+                      sqlite_id, compra_id, codigo, nombre, cantidad, costo_unitario, subtotal
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [
+                      Number(it.id || 0),
+                      pgResultId,
+                      it.codigo || '',
+                      it.nombre || 'Item compra',
+                      Number(it.cantidad || 1),
+                      Number(it.costoUnitario ?? it.costo_unitario ?? 0),
+                      Number(it.subtotal || 0),
+                    ]
+                  );
+                }
               }
             }
 
@@ -524,6 +622,10 @@ export const syncPostgresService = {
 
           // 8. CAJA SESIONES & MOVIMIENTOS
           else if (tabla === 'caja_sesiones') {
+            const fechaAp = payload.fecha_apertura || payload.fechaApertura || new Date().toISOString();
+            const fechaCi = payload.fecha_cierre || payload.fechaCierre || null;
+            const apExpr = sqlTimestampParam(4, fechaAp);
+            const ciExpr = fechaCi ? sqlTimestampParam(6, fechaCi) : '$6::timestamptz';
             const csRes = await client.query(
               `INSERT INTO caja_sesiones (
                 sqlite_id, usuario_id, usuario_nombre, fecha_apertura, monto_inicial,
@@ -531,7 +633,7 @@ export const syncPostgresService = {
                 total_ventas_efectivo, total_ventas_debito, total_ventas_credito,
                 total_ventas_transferencia, total_ingresos_extra, total_egresos_extra,
                 estado, observaciones
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+              ) VALUES ($1, $2, $3, ${apExpr}, $5, ${ciExpr}, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
               ON CONFLICT (sqlite_id) DO UPDATE SET
                 fecha_cierre = EXCLUDED.fecha_cierre,
                 monto_esperado_efectivo = EXCLUDED.monto_esperado_efectivo,
@@ -550,9 +652,9 @@ export const syncPostgresService = {
                 Number(payload.id || registro_id),
                 Number(payload.usuario_id || payload.usuarioId || 1),
                 payload.usuario_nombre || payload.usuarioNombre || 'Cajero',
-                payload.fecha_apertura || payload.fechaApertura || new Date().toISOString(),
+                fechaAp,
                 Number(payload.monto_inicial ?? payload.montoInicial ?? 0),
-                payload.fecha_cierre || payload.fechaCierre || null,
+                fechaCi,
                 Number(payload.monto_esperado_efectivo ?? payload.montoEsperadoEfectivo ?? 0),
                 Number(payload.monto_real_efectivo ?? payload.montoRealEfectivo ?? 0),
                 Number(payload.diferencia || 0),
@@ -572,17 +674,26 @@ export const syncPostgresService = {
           }
 
           else if (tabla === 'caja_movimientos') {
+            let sesionPgId = null;
+            const rawSesionId = Number(payload.caja_sesion_id || payload.cajaSesionId || 0);
+            if (rawSesionId > 0) {
+              const sRes = await client.query('SELECT id FROM caja_sesiones WHERE sqlite_id = $1 OR id = $1 LIMIT 1', [rawSesionId]);
+              if (sRes.rows.length > 0) sesionPgId = sRes.rows[0].id;
+            }
+            const cmFecha = payload.fecha || new Date().toISOString();
+            const cmFechaExpr = sqlTimestampParam(6, cmFecha);
             const cmRes = await client.query(
               `INSERT INTO caja_movimientos (
-                sqlite_id, tipo, monto, concepto, fecha, usuario_nombre
-              ) VALUES ($1, $2, $3, $4, $5, $6)
+                sqlite_id, caja_sesion_id, tipo, monto, concepto, fecha, usuario_nombre
+              ) VALUES ($1, $2, $3, $4, $5, ${cmFechaExpr}, $7)
               RETURNING id`,
               [
                 Number(payload.id || registro_id),
+                sesionPgId,
                 payload.tipo || 'ingreso',
                 Number(payload.monto || 0),
                 payload.concepto || 'Movimiento de caja',
-                payload.fecha || new Date().toISOString(),
+                cmFecha,
                 payload.usuario_nombre || payload.usuarioNombre || 'Cajero',
               ]
             );
@@ -602,10 +713,12 @@ export const syncPostgresService = {
               if (pRes.rows.length > 0) prodPgId = pRes.rows[0].id;
             }
 
+            const imFecha = payload.fecha || new Date().toISOString();
+            const imFechaExpr = sqlTimestampParam(10, imFecha);
             const imRes = await client.query(
               `INSERT INTO inventario_movimientos (
                 sqlite_id, producto_id, producto_nombre, tipo, cantidad, stock_anterior, stock_nuevo, motivo, referencia_id, fecha
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, ${imFechaExpr})
               RETURNING id`,
               [
                 Number(payload.id || registro_id),
@@ -617,7 +730,7 @@ export const syncPostgresService = {
                 Number(payload.stock_nuevo ?? payload.stockNuevo ?? 0),
                 payload.motivo || null,
                 payload.referencia_id || payload.referenciaId ? Number(payload.referencia_id || payload.referenciaId) : null,
-                payload.fecha || new Date().toISOString(),
+                imFecha,
               ]
             );
             pgResultId = imRes.rows[0]?.id;
@@ -652,7 +765,10 @@ export const syncPostgresService = {
             [operationId, tabla, Number(registro_id || payload.id || 0), operacion, pgResultId || null]
           );
 
+          await client.query(`RELEASE SAVEPOINT ${savepointName}`);
         } catch (opErr) {
+          await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`).catch(() => {});
+          await client.query(`RELEASE SAVEPOINT ${savepointName}`).catch(() => {});
           console.error(`[SyncPostgresService] Error procesando item ${id} (${tabla}):`, opErr.message);
           results.push({ id, operation_id: operationId, tabla, registro_id, status: 'error', error: opErr.message });
           failCount++;

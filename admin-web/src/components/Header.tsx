@@ -1,5 +1,5 @@
-﻿import React, { useEffect, useState } from "react";
-import { Database, RefreshCw } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Database, RefreshCw, Menu } from "lucide-react";
 import { adminApi, getBaseApiUrl } from "../services/api";
 
 interface HeaderProps {
@@ -7,6 +7,7 @@ interface HeaderProps {
   subtitle?: string;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  onOpenMobileMenu?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -14,6 +15,7 @@ export const Header: React.FC<HeaderProps> = ({
   subtitle,
   onRefresh,
   isRefreshing = false,
+  onOpenMobileMenu,
 }) => {
   const [cloudStatus, setCloudStatus] = useState<any>(null);
 
@@ -37,49 +39,88 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header
       style={{
-        padding: "20px 32px",
-        backgroundColor: "rgba(11, 19, 17, 0.8)",
-        backdropFilter: "blur(12px)",
+        padding: "16px 24px",
+        backgroundColor: "rgba(11, 19, 17, 0.9)",
+        backdropFilter: "blur(14px)",
+        WebkitBackdropFilter: "blur(14px)",
         borderBottom: "1px solid var(--border-subtle)",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
         position: "sticky",
         top: 0,
-        zIndex: 30,
+        zIndex: 40,
+        gap: "12px",
       }}
     >
-      <div>
-        <h2 style={{ fontSize: "22px", fontWeight: "700", color: "#f8fafc", letterSpacing: "-0.5px" }}>
-          {title}
-        </h2>
-        {subtitle && (
-          <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "2px" }}>
-            {subtitle}
-          </p>
-        )}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
+        {/* Mobile Hamburger Button */}
+        <button
+          onClick={onOpenMobileMenu}
+          className="btn-icon btn-secondary mobile-menu-trigger"
+          title="Abrir Menú"
+          style={{
+            display: "none",
+            flexShrink: 0,
+          }}
+        >
+          <Menu size={20} color="#34d399" />
+        </button>
+
+        <div style={{ minWidth: 0 }}>
+          <h2
+            style={{
+              fontSize: "19px",
+              fontWeight: "800",
+              color: "#f8fafc",
+              letterSpacing: "-0.4px",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {title}
+          </h2>
+          {subtitle && (
+            <p
+              className="header-subtitle"
+              style={{
+                fontSize: "12px",
+                color: "var(--text-secondary)",
+                marginTop: "2px",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {subtitle}
+            </p>
+          )}
+        </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
         {/* Cloud Connection Badge */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "8px",
-            padding: "6px 14px",
+            gap: "6px",
+            padding: "5px 12px",
             background: isOnline ? "rgba(16, 185, 129, 0.12)" : "rgba(244, 63, 94, 0.12)",
             border: `1px solid ${isOnline ? "rgba(52, 211, 153, 0.3)" : "rgba(251, 113, 133, 0.3)"}`,
             borderRadius: "9999px",
-            fontSize: "12px",
-            fontWeight: "600",
+            fontSize: "11px",
+            fontWeight: "700",
             color: isOnline ? "#34d399" : "#fb7185",
           }}
           title={`Backend: ${getBaseApiUrl()}`}
         >
           <span className={`pulse-dot ${isOnline ? "online" : "offline"}`} />
-          <Database size={14} />
-          <span>{isOnline ? "Neon Cloud Conectado" : "Desconectado de la Nube"}</span>
+          <Database size={13} />
+          <span className="cloud-badge-text">
+            {isOnline ? "Neon Conectado" : "Desconectado"}
+          </span>
         </div>
 
         {/* Refresh Button */}
@@ -88,7 +129,8 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onRefresh}
             disabled={isRefreshing}
             className="btn btn-secondary btn-sm"
-            style={{ display: "flex", alignItems: "center", gap: "6px" }}
+            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "7px 12px" }}
+            title="Actualizar datos"
           >
             <RefreshCw
               size={14}
@@ -96,10 +138,30 @@ export const Header: React.FC<HeaderProps> = ({
                 animation: isRefreshing ? "spin 1s linear infinite" : "none",
               }}
             />
-            <span>Actualizar</span>
+            <span className="refresh-btn-text">Actualizar</span>
           </button>
         )}
       </div>
+
+      <style>{`
+        @keyframes spin {
+          100% { transform: rotate(360deg); }
+        }
+        @media (max-width: 768px) {
+          .mobile-menu-trigger {
+            display: inline-flex !important;
+          }
+          .header-subtitle {
+            display: none !important;
+          }
+          .cloud-badge-text {
+            display: none;
+          }
+          .refresh-btn-text {
+            display: none;
+          }
+        }
+      `}</style>
     </header>
   );
 };

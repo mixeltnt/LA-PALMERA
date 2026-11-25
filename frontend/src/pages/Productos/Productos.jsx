@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import productService from "../../services/productService";
 import categoryService from "../../services/categoryService";
 import providerService from "../../services/providerService";
@@ -17,6 +18,7 @@ const emptyForm = {
   stockActual: "",
   stockMinimo: "",
   unidadMedida: "Unidad",
+  permiteDecimales: false,
   imagen: "",
   activo: true,
 };
@@ -143,6 +145,7 @@ function Productos() {
       stockActual: producto.stockActual ?? "",
       stockMinimo: producto.stockMinimo ?? "",
       unidadMedida: producto.unidadMedida || "Unidad",
+      permiteDecimales: Boolean(producto.permiteDecimales ?? producto.permite_decimales ?? (producto.unidadMedida?.toLowerCase() === "kg" || producto.unidadMedida?.toLowerCase() === "gramo")),
       imagen: producto.imagen || producto.imagenUrl || "",
       activo: producto.activo !== undefined ? producto.activo : true,
     });
@@ -152,10 +155,29 @@ function Productos() {
 
   const handleFormChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setForm((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
-    }));
+    setForm((prev) => {
+      const updated = {
+        ...prev,
+        [name]: type === "checkbox" ? checked : value,
+      };
+      if (name === "unidadMedida") {
+        const u = String(value).toLowerCase();
+        if (u === "kg" || u === "gramo" || u.includes("kilo") || u.includes("granel") || u.includes("pesad")) {
+          updated.permiteDecimales = true;
+        }
+      }
+      if (name === "categoria") {
+        const catObj = categorias.find((c) => String(c.id || c._id) === String(value));
+        const catNom = (catObj?.nombre || "").toLowerCase();
+        if (catNom.includes("fruta") || catNom.includes("verdura") || catNom.includes("panader") || catNom.includes("granel")) {
+          if (!updated.unidadMedida || updated.unidadMedida === "Unidad") {
+            updated.unidadMedida = "Kg";
+          }
+          updated.permiteDecimales = true;
+        }
+      }
+      return updated;
+    });
     setError("");
   };
 
@@ -165,11 +187,11 @@ function Productos() {
       errores.push("El código del producto es obligatorio.");
     if (!form.nombre.trim())
       errores.push("El nombre del producto es obligatorio.");
-    if (!form.precioCompra || Number(form.precioCompra) <= 0)
-      errores.push("El precio de compra debe ser mayor a 0.");
+    if (form.precioCompra !== "" && form.precioCompra !== null && Number(form.precioCompra) < 0)
+      errores.push("El precio de compra no puede ser negativo.");
     if (!form.precioVenta || Number(form.precioVenta) <= 0)
       errores.push("El precio de venta debe ser mayor a 0.");
-    if (form.stockActual === "" || Number(form.stockActual) < 0)
+    if (form.stockActual !== "" && Number(form.stockActual) < 0)
       errores.push("El stock actual no puede ser negativo.");
     return errores;
   };
@@ -185,7 +207,10 @@ function Productos() {
     try {
       const payload = {
         ...form,
-        stockActual: form.stockActual,
+        precioCompra: form.precioCompra === "" ? 0 : Number(form.precioCompra),
+        precioVenta: Number(form.precioVenta),
+        stockActual: form.stockActual === "" ? 0 : Number(form.stockActual),
+        stockMinimo: form.stockMinimo === "" ? 0 : Number(form.stockMinimo),
       };
 
       if (editing) {
@@ -300,9 +325,9 @@ function Productos() {
           <span className="badge bg-success-subtle text-success border border-success border-opacity-25 px-3 py-2 small d-none d-sm-inline-flex align-items-center gap-1">
             <i className="bi bi-truck me-1"></i>El ingreso de nuevos productos y stock se realiza desde <strong>Compras</strong>
           </span>
-          <a href="/compras" className="btn btn-outline-success btn-sm shadow-sm fw-semibold">
+          <Link to="/compras" className="btn btn-outline-success btn-sm shadow-sm fw-semibold">
             <i className="bi bi-plus-lg me-1"></i>Ingresar vía Compras
-          </a>
+          </Link>
         </div>
       </div>
 
@@ -679,7 +704,7 @@ function Productos() {
                         onChange={handleFormChange}
                       />
                     </div>
-                    <div className="col-md-4">
+                    <div className="col-md-3">
                       <label className="form-label small fw-semibold">
                         Unidad de Medida
                       </label>
@@ -690,16 +715,31 @@ function Productos() {
                         onChange={handleFormChange}
                       >
                         <option value="Unidad">Unidad</option>
-                        <option value="Kg">Kg</option>
-                        <option value="Litro">Litro</option>
+                        <option value="Kg">Kg (Kilos / Granel)</option>
                         <option value="Gramo">Gramo</option>
+                        <option value="Litro">Litro</option>
                         <option value="Paquete">Paquete</option>
                         <option value="Caja">Caja</option>
                       </select>
                     </div>
+                    <div className="col-md-5 d-flex align-items-center">
+                      <div className="form-check form-switch pt-4">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="permiteDecimalesSwitch"
+                          name="permiteDecimales"
+                          checked={Boolean(form.permiteDecimales)}
+                          onChange={handleFormChange}
+                        />
+                        <label className="form-check-label small fw-semibold ms-1" htmlFor="permiteDecimalesSwitch">
+                          ⚖️ Venta por Balanza / Kilos (permite decimales)
+                        </label>
+                      </div>
+                    </div>
                     <div className="col-md-4">
                       <label className="form-label small fw-semibold">
-                        Precio Compra *
+                        Precio Costo ($ compra)
                       </label>
                       <div className="input-group">
                         <span className="input-group-text">$</span>
@@ -709,9 +749,9 @@ function Productos() {
                           min="0"
                           step="0.01"
                           name="precioCompra"
+                          placeholder="0"
                           value={form.precioCompra}
                           onChange={handleFormChange}
-                          required
                         />
                       </div>
                     </div>
@@ -735,16 +775,17 @@ function Productos() {
                     </div>
                     <div className="col-md-2">
                       <label className="form-label small fw-semibold">
-                        Stock *
+                        Stock {form.permiteDecimales ? "(Kg)" : ""}
                       </label>
                       <input
                         className="form-control"
                         type="number"
                         min="0"
+                        step={form.permiteDecimales ? "0.001" : "1"}
                         name="stockActual"
+                        placeholder="0"
                         value={form.stockActual}
                         onChange={handleFormChange}
-                        required
                       />
                     </div>
                     <div className="col-md-2">
@@ -755,6 +796,7 @@ function Productos() {
                         className="form-control"
                         type="number"
                         min="0"
+                        step={form.permiteDecimales ? "0.001" : "1"}
                         name="stockMinimo"
                         value={form.stockMinimo}
                         onChange={handleFormChange}

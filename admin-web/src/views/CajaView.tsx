@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Wallet, Eye, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { adminApi } from "../services/api";
 
@@ -40,18 +40,41 @@ export const CajaView: React.FC = () => {
     const num = Number(amount) || 0;
     return `$${num.toLocaleString("es-CL")}`;
   };
+  const formatDateTimeSafe = (dateStr?: string | null) => {
+    if (!dateStr) return "---";
+    const d = new Date(dateStr);
+    return isNaN(d.getTime())
+      ? "---"
+      : d.toLocaleString("es-CL", {
+          day: "2-digit",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+  };
+
+  const formatTimeSafe = (dateStr?: string | null) => {
+    if (!dateStr) return "---";
+    const d = new Date(dateStr);
+    return isNaN(d.getTime())
+      ? "---"
+      : d.toLocaleTimeString("es-CL", {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+  };
 
   return (
-    <div style={{ padding: "28px 32px", display: "flex", flexDirection: "column", gap: "24px" }}>
+    <div className="page-container">
       {/* Caja Table */}
-      <div className="glass-card" style={{ padding: "24px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+      <div className="glass-card" style={{ padding: "20px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "8px" }}>
           <div>
-            <h3 style={{ fontSize: "17px", fontWeight: "700", color: "#f8fafc" }}>
+            <h3 style={{ fontSize: "16px", fontWeight: "700", color: "#f8fafc" }}>
               Historial de Turnos y Arqueos de Caja
             </h3>
-            <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-              Sesiones de caja registradas y sincronizadas desde SQLite
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+              Sesiones de caja sincronizadas en PostgreSQL Neon
             </span>
           </div>
         </div>
@@ -64,85 +87,57 @@ export const CajaView: React.FC = () => {
                 <th>Cajero / Usuario</th>
                 <th>Apertura</th>
                 <th>Cierre</th>
-                <th>Monto Apertura</th>
-                <th>Ventas Totales</th>
-                <th>Monto Cierre</th>
-                <th>Diferencia / Arqueo</th>
+                <th>Monto Inicial</th>
+                <th>Total Ventas</th>
                 <th>Estado</th>
-                <th>Detalle</th>
+                <th>Acción</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
-                    Cargando turnos de caja desde Neon Cloud...
+                  <td colSpan={8} style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
+                    Cargando turnos de caja desde la réplica remota...
                   </td>
                 </tr>
               ) : sesiones.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
+                  <td colSpan={8} style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
                     No hay turnos de caja registrados.
                   </td>
                 </tr>
               ) : (
                 sesiones.map((s) => {
-                  const isOpen = s.estado === "abierta" || !s.fecha_cierre;
-                  const diferencia = Number(s.diferencia) || 0;
-
+                  const estaAbierta = s.estado === "abierta" || !s.fecha_cierre;
                   return (
                     <tr key={s.id || s.sqlite_id}>
-                      <td style={{ fontWeight: "700", color: "#34d399" }}>#{s.id || s.sqlite_id}</td>
-                      <td style={{ fontWeight: "600", color: "#f8fafc" }}>{s.usuario_nombre || s.usuario_id || "Cajero"}</td>
-                      <td style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                        {new Date(s.fecha_apertura).toLocaleString("es-CL", {
-                          day: "2-digit",
-                          month: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                      <td>
+                        <span style={{ fontWeight: "700", color: "#34d399" }}>#{s.id || s.sqlite_id}</span>
                       </td>
-                      <td style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                        {s.fecha_cierre
-                          ? new Date(s.fecha_cierre).toLocaleString("es-CL", {
-                              day: "2-digit",
-                              month: "short",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : "En curso..."}
+                      <td style={{ fontWeight: "600", color: "#f8fafc" }}>{s.usuario_nombre || "Cajero"}</td>
+                      <td style={{ fontSize: "12px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                        {formatDateTimeSafe(s.fecha_apertura)}
                       </td>
-                      <td style={{ color: "var(--text-secondary)" }}>{formatMoney(s.monto_apertura)}</td>
-                      <td style={{ fontWeight: "600", color: "#f8fafc" }}>{formatMoney(s.total_ventas)}</td>
-                      <td style={{ color: "var(--text-secondary)" }}>
-                        {s.monto_cierre !== null ? formatMoney(s.monto_cierre) : "-"}
+                      <td style={{ fontSize: "12px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                        {s.fecha_cierre ? formatDateTimeSafe(s.fecha_cierre) : "En curso..."}
+                      </td>
+                      <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                        {formatMoney(s.monto_inicial)}
+                      </td>
+                      <td style={{ fontWeight: "700", color: "#f8fafc", whiteSpace: "nowrap" }}>
+                        {formatMoney(s.total_ventas)}
                       </td>
                       <td>
-                        {!isOpen ? (
-                          <span
-                            style={{
-                              fontWeight: "700",
-                              color: diferencia === 0 ? "#34d399" : diferencia > 0 ? "#38bdf8" : "#fb7185",
-                            }}
-                          >
-                            {diferencia > 0 ? `+${formatMoney(diferencia)}` : formatMoney(diferencia)}
-                          </span>
-                        ) : (
-                          <span style={{ color: "var(--text-muted)" }}>-</span>
-                        )}
-                      </td>
-                      <td>
-                        {isOpen ? (
-                          <span className="badge badge-success">Abierta</span>
-                        ) : (
-                          <span className="badge badge-info">Cerrada</span>
-                        )}
+                        <span className={`badge ${estaAbierta ? "badge-success" : "badge-info"}`}>
+                          {estaAbierta ? "Abierta" : "Cerrada"}
+                        </span>
                       </td>
                       <td>
                         <button
                           onClick={() => openSesionDetalle(s.id || s.sqlite_id)}
                           className="btn btn-secondary btn-sm"
-                          title="Ver Movimientos"
+                          title="Ver Movimientos de Caja"
+                          style={{ padding: "6px 10px" }}
                         >
                           <Eye size={14} />
                         </button>
@@ -162,12 +157,14 @@ export const CajaView: React.FC = () => {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              marginTop: "20px",
-              paddingTop: "16px",
+              marginTop: "16px",
+              paddingTop: "14px",
               borderTop: "1px solid var(--border-subtle)",
+              flexWrap: "wrap",
+              gap: "10px",
             }}
           >
-            <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+            <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
               Página {paginacion.page} de {paginacion.totalPages}
             </span>
             <div style={{ display: "flex", gap: "8px" }}>
@@ -177,14 +174,14 @@ export const CajaView: React.FC = () => {
                 className="btn btn-secondary btn-sm"
               >
                 <ChevronLeft size={16} />
-                Anterior
+                <span>Anterior</span>
               </button>
               <button
                 disabled={paginacion.page >= paginacion.totalPages}
                 onClick={() => fetchSesiones(paginacion.page + 1)}
                 className="btn btn-secondary btn-sm"
               >
-                Siguiente
+                <span>Siguiente</span>
                 <ChevronRight size={16} />
               </button>
             </div>
@@ -192,107 +189,84 @@ export const CajaView: React.FC = () => {
         )}
       </div>
 
-      {/* Modal Detalle Sesion de Caja */}
+      {/* Modal Movimientos de Caja (Responsive Bottom Sheet) */}
       {selectedSesion && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.75)",
-            backdropFilter: "blur(6px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 100,
-            padding: "20px",
-          }}
-          onClick={() => setSelectedSesion(null)}
-        >
-          <div
-            className="glass-card"
-            style={{
-              width: "100%",
-              maxWidth: "600px",
-              backgroundColor: "#11201b",
-              padding: "28px",
-              borderRadius: "var(--radius-xl)",
-              maxHeight: "90vh",
-              overflowY: "auto",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="modal-overlay" onClick={() => setSelectedSesion(null)}>
+          <div className="modal-content" style={{ padding: "24px" }} onClick={(e) => e.stopPropagation()}>
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                paddingBottom: "16px",
+                paddingBottom: "14px",
                 borderBottom: "1px solid var(--border-subtle)",
-                marginBottom: "20px",
+                marginBottom: "16px",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <Wallet size={24} color="#10b981" />
+                <Wallet size={22} color="#10b981" />
                 <div>
-                  <h3 style={{ fontSize: "18px", fontWeight: "700", color: "#f8fafc" }}>
-                    Detalle de Turno #{selectedSesion.sesion.id || selectedSesion.sesion.sqlite_id}
+                  <h3 style={{ fontSize: "17px", fontWeight: "700", color: "#f8fafc" }}>
+                    Turno #{selectedSesion.sesion?.id || selectedSesion.sesion?.sqlite_id}
                   </h3>
-                  <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                    Cajero: {selectedSesion.sesion.usuario_nombre || "Usuario"}
+                  <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                    Cajero: {selectedSesion.sesion?.usuario_nombre || "Cajero"}
                   </span>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedSesion(null)}
-                style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+                style={{
+                  background: "rgba(255, 255, 255, 0.06)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "8px",
+                  color: "var(--text-secondary)",
+                  cursor: "pointer",
+                  padding: "6px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
+            {/* Sesion Resumen */}
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
+                gridTemplateColumns: "1fr 1fr",
                 gap: "10px",
+                padding: "12px",
                 backgroundColor: "rgba(0,0,0,0.25)",
-                padding: "16px",
                 borderRadius: "var(--radius-md)",
-                marginBottom: "20px",
-                textAlign: "center",
+                marginBottom: "16px",
+                fontSize: "12px",
               }}
             >
               <div>
-                <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Apertura</div>
-                <div style={{ fontSize: "16px", fontWeight: "700", color: "#f8fafc" }}>
-                  {formatMoney(selectedSesion.sesion.monto_apertura)}
+                <span style={{ color: "var(--text-muted)" }}>Monto Inicial:</span>
+                <div style={{ fontSize: "16px", fontWeight: "700", color: "#f8fafc", marginTop: "2px" }}>
+                  {formatMoney(selectedSesion.sesion?.monto_inicial)}
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Ventas Efectivo</div>
-                <div style={{ fontSize: "16px", fontWeight: "700", color: "#34d399" }}>
-                  {formatMoney(selectedSesion.sesion.total_ventas_efectivo || selectedSesion.sesion.total_ventas)}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Cierre Reportado</div>
-                <div style={{ fontSize: "16px", fontWeight: "700", color: "#f8fafc" }}>
-                  {formatMoney(selectedSesion.sesion.monto_cierre)}
+                <span style={{ color: "var(--text-muted)" }}>Total Ventas:</span>
+                <div style={{ fontSize: "16px", fontWeight: "700", color: "#34d399", marginTop: "2px" }}>
+                  {formatMoney(selectedSesion.sesion?.total_ventas)}
                 </div>
               </div>
             </div>
 
-            <h4 style={{ fontSize: "14px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "12px" }}>
-              Movimientos de Caja (Entradas / Salidas / Retiros)
+            <h4 style={{ fontSize: "13px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "8px" }}>
+              Movimientos de Caja
             </h4>
-            <div className="table-responsive">
-              <table className="table" style={{ fontSize: "13px" }}>
+            <div className="table-responsive" style={{ marginBottom: "16px" }}>
+              <table className="table" style={{ fontSize: "12px", minWidth: "360px" }}>
                 <thead>
                   <tr>
-                    <th>Fecha / Hora</th>
+                    <th>Hora</th>
                     <th>Tipo</th>
                     <th>Motivo</th>
                     <th style={{ textAlign: "right" }}>Monto</th>
@@ -301,28 +275,30 @@ export const CajaView: React.FC = () => {
                 <tbody>
                   {selectedSesion.movimientos && selectedSesion.movimientos.length > 0 ? (
                     selectedSesion.movimientos.map((m: any, idx: number) => {
-                      const isIngreso = m.tipo === "ingreso" || m.tipo === "apertura";
+                      const esIngreso = m.tipo === "ingreso" || m.tipo === "venta";
                       return (
                         <tr key={idx}>
-                          <td style={{ color: "var(--text-secondary)" }}>
-                            {new Date(m.creado_en || m.fecha).toLocaleTimeString("es-CL")}
+                          <td style={{ fontSize: "11px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                            {formatTimeSafe(m.fecha || m.creado_en)}
                           </td>
                           <td>
-                            <span className={`badge ${isIngreso ? "badge-success" : "badge-danger"}`}>
+                            <span className={`badge ${esIngreso ? "badge-success" : "badge-danger"}`}>
                               {m.tipo}
                             </span>
                           </td>
-                          <td style={{ color: "var(--text-primary)" }}>{m.motivo || m.descripcion || "Movimiento"}</td>
-                          <td style={{ textAlign: "right", fontWeight: "700", color: isIngreso ? "#34d399" : "#fb7185" }}>
-                            {formatMoney(m.monto)}
+                          <td style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {m.concepto || m.motivo || m.descripcion || "Transacción"}
+                          </td>
+                          <td style={{ textAlign: "right", fontWeight: "700", color: esIngreso ? "#34d399" : "#fb7185", whiteSpace: "nowrap" }}>
+                            {esIngreso ? `+${formatMoney(m.monto)}` : `-${formatMoney(m.monto)}`}
                           </td>
                         </tr>
                       );
                     })
                   ) : (
                     <tr>
-                      <td colSpan={4} style={{ textAlign: "center", padding: "16px", color: "var(--text-muted)" }}>
-                        No se registraron movimientos manuales adicionales durante el turno.
+                      <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)" }}>
+                        No hay movimientos registrados para esta sesión.
                       </td>
                     </tr>
                   )}
@@ -330,8 +306,8 @@ export const CajaView: React.FC = () => {
               </table>
             </div>
 
-            <div style={{ marginTop: "24px", display: "flex", justifyContent: "flex-end" }}>
-              <button onClick={() => setSelectedSesion(null)} className="btn btn-secondary">
+            <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setSelectedSesion(null)} className="btn btn-secondary btn-sm" style={{ width: "100%" }}>
                 Cerrar
               </button>
             </div>

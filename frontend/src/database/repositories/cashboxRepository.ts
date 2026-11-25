@@ -66,6 +66,9 @@ export const cashboxRepository = {
     const db = await dbManager.getConnection();
     const sessionRows = await db.select<any>('SELECT * FROM caja_sesiones WHERE id = ?', [Number(sessionId)]);
     const current = sessionRows[0];
+    if (!current) {
+      throw new Error(`Sesión de caja #${sessionId} no encontrada.`);
+    }
 
     const esperadoEfectivo = (current.monto_inicial || 0) +
       (current.total_ventas_efectivo || 0) +

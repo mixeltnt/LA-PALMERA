@@ -7,7 +7,13 @@ const PORT = process.env.PORT || 4000;
 
 function validarEntorno() {
   if (!process.env.JWT_SECRET) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("[Seguridad] JWT_SECRET es obligatorio en NODE_ENV=production.");
+    }
     process.env.JWT_SECRET = "la_palmera_secret_key_2026";
+  }
+  if (!process.env.API_KEY && process.env.NODE_ENV === "production") {
+    throw new Error("[Seguridad] API_KEY es obligatorio en NODE_ENV=production.");
   }
 }
 

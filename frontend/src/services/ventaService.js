@@ -3,16 +3,19 @@ import { saleRepository } from "../database/repositories/saleRepository";
 export const ventaService = {
   crear: async (data) => {
     const rawItems = data.productos || data.items || [];
-    const items = rawItems.map((i) => ({
-      productoId: i.productoId || i.producto || i._id || i.id || 1,
-      codigo: i.codigo || "",
-      nombre: i.nombre || "Producto",
-      cantidad: Number(i.cantidad) || 1,
-      precioUnitario: Number(i.precioUnitario || i.precio) || 0,
-      costoUnitario: Number(i.precioCosto || i.costoUnitario) || 0,
-      descuento: Number(i.descuento) || 0,
-      subtotal: Number(i.subtotal) || ((Number(i.cantidad) || 1) * (Number(i.precioUnitario || i.precio) || 0)),
-    }));
+    const items = rawItems.map((i) => {
+      const rawProdId = Number(i.productoId || i.producto || i._id || i.id || 0);
+      return {
+        productoId: rawProdId > 0 ? rawProdId : null,
+        codigo: i.codigo || "",
+        nombre: i.nombre || "Producto",
+        cantidad: Number(i.cantidad) > 0 ? Number(i.cantidad) : 1,
+        precioUnitario: Number(i.precioUnitario || i.precio) || 0,
+        costoUnitario: Number(i.precioCosto || i.costoUnitario) || 0,
+        descuento: Number(i.descuento) || 0,
+        subtotal: Math.round(Number(i.subtotal) || ((Number(i.cantidad) > 0 ? Number(i.cantidad) : 1) * (Number(i.precioUnitario || i.precio) || 0))),
+      };
+    });
 
     const total = Number(data.total) || items.reduce((s, it) => s + it.subtotal, 0);
 
@@ -20,6 +23,7 @@ export const ventaService = {
       fecha: data.fecha || new Date().toISOString(),
       cajeroId: data.cajeroId || 1,
       cajeroNombre: data.cajeroNombre || "Cajero",
+      cajaSesionId: data.cajaSesionId || null,
       clienteId: data.clienteId || (data.cliente && String(data.cliente).trim() !== "" ? data.cliente : null),
       clienteNombre: data.clienteNombre || null,
       subtotal: Number(data.subtotal) || total,
@@ -101,6 +105,7 @@ export const ventaService = {
       const precio = Number(item.precioUnitario ?? 0);
       const desc = Number(item.descuento ?? 0);
       const sub = Number(item.subtotal ?? (cant * precio - desc));
+      const prodImagen = item.imagen || item.imagenUrl || item.p_imagen_url || (item.producto && (item.producto.imagen || item.producto.imagenUrl)) || null;
 
       return {
         _id: String(item.id || idx + 1),
@@ -110,6 +115,8 @@ export const ventaService = {
           _id: String(item.productoId),
           nombre: prodNombre,
           codigo: prodCodigo,
+          imagen: prodImagen,
+          imagenUrl: prodImagen,
         },
         codigo: prodCodigo,
         nombre: prodNombre,
@@ -117,6 +124,8 @@ export const ventaService = {
         precioUnitario: precio,
         descuento: desc,
         subtotal: sub,
+        imagen: prodImagen,
+        imagenUrl: prodImagen,
       };
     });
 

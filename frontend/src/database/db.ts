@@ -21,7 +21,35 @@ class BrowserFallbackDB implements IDatabaseConnection {
   private initialized = false;
 
   constructor() {
+    this.initializeTables();
     this.initFromLocalStorage();
+  }
+
+  private initializeTables() {
+    const tables = [
+      'configuracion',
+      'usuarios',
+      'categorias',
+      'productos',
+      'clientes',
+      'cliente_movimientos',
+      'proveedores',
+      'caja_sesiones',
+      'caja_movimientos',
+      'ventas',
+      'venta_items',
+      'venta_pagos',
+      'compras',
+      'compra_items',
+      'inventario_movimientos',
+      'respaldos',
+      'sync_queue',
+    ];
+    for (const t of tables) {
+      if (!this.memoryStore.has(t)) {
+        this.memoryStore.set(t, []);
+      }
+    }
   }
 
   private initFromLocalStorage() {
@@ -150,8 +178,51 @@ class BrowserFallbackDB implements IDatabaseConnection {
 
       if (match && match[2]) {
         const columns = match[2].split(',').map(c => c.trim().toLowerCase());
+        const valuesMatch = query.match(/VALUES\s*\(([\s\S]*)\)\s*;?\s*$/i);
+        // Separar argumentos de VALUES respetando paréntesis (ej: datetime('now', 'localtime'), COALESCE(?, ...))
+        const rawValueTokens: string[] = [];
+        if (valuesMatch && valuesMatch[1]) {
+          let depth = 0;
+          let inStr = false;
+          let cur = '';
+          for (const ch of valuesMatch[1]) {
+            if (ch === "'" && !inStr) { inStr = true; cur += ch; }
+            else if (ch === "'" && inStr) { inStr = false; cur += ch; }
+            else if (!inStr && ch === '(') { depth++; cur += ch; }
+            else if (!inStr && ch === ')') { depth = Math.max(0, depth - 1); cur += ch; }
+            else if (!inStr && depth === 0 && ch === ',') { rawValueTokens.push(cur.trim()); cur = ''; }
+            else { cur += ch; }
+          }
+          if (cur.trim()) rawValueTokens.push(cur.trim());
+        }
+
+        let bIdx = 0;
         columns.forEach((col, idx) => {
-          if (idx < bindValues.length && bindValues[idx] !== undefined) {
+          const tok = rawValueTokens[idx];
+          if (tok) {
+            if (tok === '?') {
+              if (bIdx < bindValues.length && bindValues[bIdx] !== undefined) {
+                record[col] = bindValues[bIdx];
+              }
+              bIdx++;
+            } else if (/^COALESCE\(\s*\?/i.test(tok)) {
+              const val = bIdx < bindValues.length ? bindValues[bIdx] : null;
+              bIdx++;
+              record[col] = val !== null && val !== undefined ? val : new Date().toISOString();
+            } else if (/^datetime\(/i.test(tok)) {
+              record[col] = new Date().toISOString();
+            } else if (/^'(.*)'$/.test(tok)) {
+              record[col] = tok.slice(1, -1);
+            } else if (/^-?\d+(\.\d+)?$/.test(tok)) {
+              record[col] = Number(tok);
+            } else if (tok.toUpperCase() === 'NULL') {
+              record[col] = null;
+            } else if (tok.includes('?')) {
+              const qCount = (tok.match(/\?/g) || []).length;
+              record[col] = bindValues[bIdx];
+              bIdx += qCount;
+            }
+          } else if (idx < bindValues.length && bindValues[idx] !== undefined) {
             record[col] = bindValues[idx];
           }
         });
@@ -213,10 +284,12 @@ class BrowserFallbackDB implements IDatabaseConnection {
       if (tableName && this.memoryStore.has(tableName)) {
         const list = this.memoryStore.get(tableName) || [];
         
-        // Manejar UPDATE sync_queue SET estado = 'completado' WHERE id = ?
+        // Manejar UPDATE sync_queue SET estado = 'completado' WHERE id = ? / operation_id = ?
         if (tableName === 'sync_queue' && upper.includes("ESTADO = 'COMPLETADO'")) {
-          const idVal = Number(bindValues[0]);
-          const item = list.find((q: any) => Number(q.id) === idVal);
+          const keyVal = bindValues[0];
+          const item = upper.includes('OPERATION_ID')
+            ? list.find((q: any) => String(q.operation_id) === String(keyVal))
+            : list.find((q: any) => Number(q.id) === Number(keyVal));
           if (item) {
             item.estado = 'completado';
             item.sincronizado_en = new Date().toISOString();
@@ -225,12 +298,37 @@ class BrowserFallbackDB implements IDatabaseConnection {
           }
         }
 
-        // Manejar UPDATE sync_queue SET intentos = intentos + 1, ultimo_error = ? WHERE id = ?
+        // Manejar UPDATE sync_queue SET estado = 'sincronizando' WHERE id = ?
+        if (tableName === 'sync_queue' && upper.includes("ESTADO = 'SINCRONIZANDO'") && bindValues.length > 0) {
+          const idVal = Number(bindValues[0]);
+          const item = list.find((q: any) => Number(q.id) === idVal);
+          if (item) {
+            item.estado = 'sincronizando';
+            this.saveToLocalStorage();
+            return { rowsAffected: 1, lastInsertId: 0 };
+          }
+        }
+
+        // Manejar UPDATE sync_queue SET estado = 'pendiente' WHERE estado = 'sincronizando'
+        if (tableName === 'sync_queue' && upper.includes("ESTADO = 'PENDIENTE'") && upper.includes("WHERE ESTADO = 'SINCRONIZANDO'")) {
+          let changed = 0;
+          list.forEach((q: any) => {
+            if (String(q.estado).toLowerCase() === 'sincronizando') {
+              q.estado = 'pendiente';
+              changed++;
+            }
+          });
+          if (changed > 0) this.saveToLocalStorage();
+          return { rowsAffected: changed, lastInsertId: 0 };
+        }
+
+        // Manejar UPDATE sync_queue SET estado = 'error', intentos = intentos + 1, ultimo_error = ? WHERE id = ?
         if (tableName === 'sync_queue' && upper.includes('INTENTOS = INTENTOS + 1')) {
           const err = bindValues[0];
           const idVal = Number(bindValues[1]);
           const item = list.find((q: any) => Number(q.id) === idVal);
           if (item) {
+            if (upper.includes("ESTADO = 'ERROR'")) item.estado = 'error';
             item.intentos = (Number(item.intentos) || 0) + 1;
             item.ultimo_error = err;
             this.saveToLocalStorage();
@@ -238,25 +336,58 @@ class BrowserFallbackDB implements IDatabaseConnection {
           }
         }
 
-        // Manejar UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?
-        if (query.includes('stock_actual = stock_actual - ?')) {
+        // Manejar UPDATE ventas SET sincronizado = 1 WHERE id = ? OR folio = ?
+        if (tableName === 'ventas' && upper.includes('SINCRONIZADO = 1') && bindValues.length > 0) {
+          const refId = Number(bindValues[0]);
+          const refFolio = Number(bindValues[1] ?? bindValues[0]);
+          let changed = 0;
+          list.forEach((v: any) => {
+            if (Number(v.id) === refId || Number(v.folio) === refFolio) {
+              v.sincronizado = 1;
+              changed++;
+            }
+          });
+          if (changed > 0) this.saveToLocalStorage();
+          return { rowsAffected: changed, lastInsertId: 0 };
+        }
+
+        // Manejar UPDATE productos SET stock_actual = [MAX(0, ROUND(]stock_actual - ?... WHERE id = ?
+        if (tableName === 'productos' && /stock_actual\s*=\s*(?:MAX\(0,\s*)?(?:ROUND\()?\s*stock_actual\s*-\s*\?/i.test(query)) {
           const qty = Number(bindValues[0]) || 0;
-          const prodId = Number(bindValues[1]);
+          const prodId = Number(bindValues[bindValues.length - 1]);
           const prod = list.find((p: any) => Number(p.id) === prodId);
           if (prod) {
-            prod.stock_actual = Math.max(0, (Number(prod.stock_actual) || 0) - qty);
+            prod.stock_actual = Math.max(0, Math.round(((Number(prod.stock_actual) || 0) - qty) * 1000) / 1000);
             this.saveToLocalStorage();
             return { rowsAffected: 1, lastInsertId: 0 };
           }
         }
 
-        // Manejar UPDATE productos SET stock_actual = stock_actual + ? WHERE id = ?
-        if (query.includes('stock_actual = stock_actual + ?')) {
+        // Manejar UPDATE productos SET stock_actual = [ROUND(]stock_actual + ?... [, precio_costo = ...] WHERE id = ?
+        if (tableName === 'productos' && /stock_actual\s*=\s*(?:ROUND\()?\s*stock_actual\s*\+\s*\?/i.test(query)) {
           const qty = Number(bindValues[0]) || 0;
-          const prodId = Number(bindValues[1]);
+          const prodId = Number(bindValues[bindValues.length - 1]);
           const prod = list.find((p: any) => Number(p.id) === prodId);
           if (prod) {
-            prod.stock_actual = (Number(prod.stock_actual) || 0) + qty;
+            prod.stock_actual = Math.round(((Number(prod.stock_actual) || 0) + qty) * 1000) / 1000;
+            if (query.includes('precio_costo') && bindValues.length >= 3) {
+              const newCost = Number(bindValues[1]) || 0;
+              if (newCost > 0) prod.precio_costo = newCost;
+            }
+            this.saveToLocalStorage();
+            return { rowsAffected: 1, lastInsertId: 0 };
+          }
+        }
+
+        // Manejar UPDATE table SET field = MAX(0, field - ?) WHERE id = ? (ej: clientes.saldo_deudor, caja_sesiones)
+        const fieldSubMatch = query.match(/SET\s+([a-zA-Z0-9_]+)\s*=\s*MAX\(\s*0\s*,\s*([a-zA-Z0-9_]+)\s*-\s*\?\s*\)\s+WHERE\s+id\s*=\s*\?/i);
+        if (fieldSubMatch) {
+          const field = fieldSubMatch[1].toLowerCase();
+          const amount = Number(bindValues[0]) || 0;
+          const rowId = Number(bindValues[1]);
+          const row = list.find((s: any) => Number(s.id) === rowId);
+          if (row) {
+            row[field] = Math.max(0, (Number(row[field]) || 0) - amount);
             this.saveToLocalStorage();
             return { rowsAffected: 1, lastInsertId: 0 };
           }
@@ -280,21 +411,41 @@ class BrowserFallbackDB implements IDatabaseConnection {
         const idVal = Number(bindValues[bindValues.length - 1]);
         const item = list.find((r: any) => Number(r.id) === idVal);
         if (item) {
-          // Extraer nombres de columnas asignadas
+          // Extraer nombres de columnas asignadas (soportando ?, literales 'texto', y datetime(...))
           const setClauseMatch = query.match(/SET\s+([\s\S]+?)\s+WHERE\s+id\s*=\s*\?/i);
           if (setClauseMatch) {
-            const assignments = setClauseMatch[1].split(',').map(s => s.trim());
+            const assignments: string[] = [];
+            let depth = 0;
+            let inStr = false;
+            let cur = '';
+            for (const ch of setClauseMatch[1]) {
+              if (ch === "'" && !inStr) { inStr = true; cur += ch; }
+              else if (ch === "'" && inStr) { inStr = false; cur += ch; }
+              else if (!inStr && ch === '(') { depth++; cur += ch; }
+              else if (!inStr && ch === ')') { depth = Math.max(0, depth - 1); cur += ch; }
+              else if (!inStr && depth === 0 && ch === ',') { assignments.push(cur.trim()); cur = ''; }
+              else { cur += ch; }
+            }
+            if (cur.trim()) assignments.push(cur.trim());
+
             let vIdx = 0;
             for (const assign of assignments) {
-              const colMatch = assign.match(/^([a-zA-Z0-9_]+)\s*=/);
+              const colMatch = assign.match(/^([a-zA-Z0-9_]+)\s*=\s*([\s\S]+)$/);
               if (colMatch) {
                 const col = colMatch[1].toLowerCase();
-                if (assign.includes('?')) {
+                const rhs = colMatch[2].trim();
+                if (rhs.includes('?')) {
                   const val = bindValues[vIdx];
                   vIdx++;
                   if (val !== undefined) {
                     item[col] = val;
                   }
+                } else if (/^'(.*)'$/.test(rhs)) {
+                  item[col] = rhs.slice(1, -1);
+                } else if (/^datetime\(/i.test(rhs)) {
+                  item[col] = new Date().toISOString();
+                } else if (/^-?\d+(\.\d+)?$/.test(rhs)) {
+                  item[col] = Number(rhs);
                 }
               }
             }
@@ -437,6 +588,12 @@ class BrowserFallbackDB implements IDatabaseConnection {
         list = list.filter((r: any) => String(r.clave) === targetClave);
       }
 
+      // b2. Filtro por username en usuarios (evita devolver el primer usuario admin al iniciar sesión con otro rol)
+      if (tableName === 'usuarios' && upper.includes('USERNAME') && bindValues.length > 0) {
+        const targetUser = String(bindValues[0] || '').trim().toLowerCase();
+        list = list.filter((r: any) => String(r.username || '').trim().toLowerCase() === targetUser);
+      }
+
       // c. Filtro por ID único
       if ((upper.includes('WHERE ID = ?') || upper.includes('WHERE P.ID = ?') || upper.includes('WHERE C.ID = ?') || upper.includes('WHERE M.ID = ?') || upper.includes('WHERE V.ID = ?')) && bindValues.length > 0) {
         const targetId = Number(bindValues[0]);
@@ -469,8 +626,23 @@ class BrowserFallbackDB implements IDatabaseConnection {
         list = list.filter((r: any) => Number(r.proveedor_id) === provId);
       }
 
-      // e. Filtro por estado
-      if (upper.includes("IN ('COMPLETADA', 'CONFIRMADA')") || upper.includes('IN ("COMPLETADA", "CONFIRMADA")')) {
+      // e. Filtro por estado y sincronización
+      if (tableName === 'ventas' && upper.includes('SINCRONIZADO = 0')) {
+        list = list.filter((r: any) => !r.sincronizado || Number(r.sincronizado) === 0);
+      }
+      if (tableName === 'sync_queue' && upper.includes("TABLA = 'VENTAS'") && upper.includes('REGISTRO_ID = ?') && bindValues.length > 0) {
+        const regId = Number(bindValues[0]);
+        list = list.filter((r: any) => String(r.tabla).toLowerCase() === 'ventas' && Number(r.registro_id) === regId);
+      }
+      if (upper.includes("IN ('PENDIENTE', 'SINCRONIZANDO', 'ERROR')") || upper.includes('IN ("PENDIENTE", "SINCRONIZANDO", "ERROR")')) {
+        list = list.filter((r: any) => {
+          const st = String(r.estado || '').toLowerCase();
+          return st === 'pendiente' || st === 'sincronizando' || st === 'error';
+        });
+        if (upper.includes('INTENTOS < 10')) {
+          list = list.filter((r: any) => (Number(r.intentos) || 0) < 10);
+        }
+      } else if (upper.includes("IN ('COMPLETADA', 'CONFIRMADA')") || upper.includes('IN ("COMPLETADA", "CONFIRMADA")')) {
         list = list.filter((r: any) => {
           const st = String(r.estado || r.venta_estado || '').toLowerCase();
           return st === 'completada' || st === 'confirmada';
@@ -714,6 +886,14 @@ class TauriSqliteDB implements IDatabaseConnection {
     const uri = `sqlite:${normalized}`;
     console.log(`[TauriSqliteDB] Conectando a SQLite: ${uri}`);
     this.db = await Database.load(uri);
+    // Activar integridad referencial, modo WAL y busy_timeout para concurrencia segura en SQLite
+    try {
+      await this.db.execute('PRAGMA foreign_keys = ON;');
+      await this.db.execute('PRAGMA journal_mode = WAL;');
+      await this.db.execute('PRAGMA busy_timeout = 5000;');
+    } catch (e) {
+      console.warn('[TauriSqliteDB] Aviso configurando PRAGMAs SQLite:', e);
+    }
   }
 
   async execute(query: string, bindValues: any[] = []): Promise<QueryResult> {
@@ -813,10 +993,36 @@ class DatabaseManager {
         }
       }
 
-      // Migración segura no destructiva: asegurar columna operation_id en sync_queue
-      try {
-        await this.connection.execute('ALTER TABLE sync_queue ADD COLUMN operation_id TEXT;');
-      } catch {}
+      // Migraciones seguras no destructivas para bases de datos limpias o migradas desde versiones anteriores
+      const safeMigrations = [
+        'ALTER TABLE sync_queue ADD COLUMN operation_id TEXT;',
+        'ALTER TABLE sync_queue ADD COLUMN ultimo_error TEXT;',
+        'ALTER TABLE sync_queue ADD COLUMN sincronizado_en TEXT;',
+        'ALTER TABLE productos ADD COLUMN codigo_barras TEXT;',
+        'ALTER TABLE productos ADD COLUMN descripcion TEXT;',
+        'ALTER TABLE productos ADD COLUMN marca TEXT;',
+        'ALTER TABLE productos ADD COLUMN categoria_id INTEGER;',
+        'ALTER TABLE productos ADD COLUMN proveedor_id INTEGER;',
+        'ALTER TABLE productos ADD COLUMN precio_venta REAL NOT NULL DEFAULT 0;',
+        'ALTER TABLE productos ADD COLUMN precio_costo REAL NOT NULL DEFAULT 0;',
+        'ALTER TABLE productos ADD COLUMN stock_actual REAL NOT NULL DEFAULT 0;',
+        'ALTER TABLE productos ADD COLUMN stock_minimo REAL NOT NULL DEFAULT 5;',
+        "ALTER TABLE productos ADD COLUMN unidad_medida TEXT DEFAULT 'unidad';",
+        'ALTER TABLE productos ADD COLUMN permite_decimales INTEGER DEFAULT 0;',
+        'ALTER TABLE productos ADD COLUMN activo INTEGER NOT NULL DEFAULT 1;',
+        'ALTER TABLE productos ADD COLUMN imagen_url TEXT;',
+        'ALTER TABLE productos ADD COLUMN aplica_iva INTEGER DEFAULT 1;',
+        'ALTER TABLE compras ADD COLUMN observaciones TEXT;',
+        "ALTER TABLE compras ADD COLUMN estado TEXT DEFAULT 'completada';",
+        'ALTER TABLE compra_items ADD COLUMN codigo TEXT;',
+        'ALTER TABLE compra_items ADD COLUMN unidad_medida TEXT;'
+      ];
+
+      for (const mig of safeMigrations) {
+        try {
+          await this.connection.execute(mig);
+        } catch {}
+      }
 
       // Ejecutar seeds iniciales si la tabla usuarios está vacía
       await this.runSeeds();
@@ -837,7 +1043,7 @@ class DatabaseManager {
       if (configs.length === 0) {
         await this.connection.execute(
           "INSERT OR IGNORE INTO configuracion (clave, valor, descripcion) VALUES (?, ?, ?)",
-          ['nombre_negocio', 'La Palmera POS', 'Nombre oficial del comercio']
+          ['nombre_negocio', 'Minimarket La Palmera', 'Nombre oficial del comercio']
         );
         await this.connection.execute(
           "INSERT OR IGNORE INTO configuracion (clave, valor, descripcion) VALUES (?, ?, ?)",
@@ -855,7 +1061,7 @@ class DatabaseManager {
 
       // Categorías iniciales por defecto si no existen
       const catCount = await this.connection.select<{ c: number }>("SELECT count(*) as c FROM categorias");
-      if (!catCount || catCount[0]?.c === 0) {
+      if (!catCount || catCount.length === 0 || Number(catCount[0]?.c ?? 0) === 0) {
         const defaultCats = [
           ['Bebidas y Refrescos', 'Gaseosas, jugos, aguas minerales y energéticas', '#2563eb', 'bi-cup-straw'],
           ['Abarrotes y Despensa', 'Arroz, fideos, aceites, harinas, salsas y legumbres', '#16a34a', 'bi-basket'],
@@ -883,29 +1089,16 @@ class DatabaseManager {
         }
       }
 
-      // Proveedores iniciales por defecto si no existen
-      const provCount = await this.connection.select<{ c: number }>("SELECT count(*) as c FROM proveedores");
-      if (!provCount || provCount[0]?.c === 0) {
-        const defaultProvs = [
-          ['96.792.000-2', 'Distribuidora CCU Chile S.A.', 'Andrés Valenzuela', '+56 9 8123 4567', 'ventas@ccuchile.cl', 'Av. Presidente Eduardo Frei Montalva 9600, Santiago'],
-          ['91.144.000-8', 'Embotelladora Andina S.A.', 'Claudia Morales', '+56 9 7234 5678', 'pedidos@koandina.com', 'Av. El Peñón 0123, Puente Alto'],
-          ['77.345.678-K', 'Distribuidora Abarrotes Central Ltda.', 'Roberto Fuentes', '+56 9 6345 6789', 'contacto@abarrotescentral.cl', 'Av. Los Pajaritos 4560, Maipú']
-        ];
-        for (const p of defaultProvs) {
-          await this.connection.execute(
-            "INSERT OR IGNORE INTO proveedores (rut, nombre, contacto, telefono, email, direccion, activo) VALUES (?, ?, ?, ?, ?, ?, 1)",
-            p
-          );
-        }
-      }
+      // Proveedores iniciales: limpio para que el cliente ingrese los suyos
+      // (No insertar datos ficticios o heredados de La Palmera)
 
-      // Productos iniciales por defecto si no existen
+      // Productos iniciales de muestra para minimarket/panadería
       const prodCount = await this.connection.select<{ c: number }>("SELECT count(*) as c FROM productos");
-      if (!prodCount || prodCount[0]?.c === 0) {
+      if (!prodCount || prodCount.length === 0 || Number(prodCount[0]?.c ?? 0) === 0) {
         const defaultProds = [
-          ['BEB-001', '7801610001014', 'Coca-Cola Original 1.5L', 'Bebida gaseosa sabor original 1.5 litros', 'Coca-Cola', 1, 1, 1700, 1100, 48, 10, 'unidad', 0, 1],
-          ['ABR-001', '7802500000011', 'Arroz Grado 1 Selección 1kg', 'Arroz grano largo seleccionado 1 kilo', 'Tucapel', 2, 3, 1450, 950, 36, 8, 'unidad', 0, 1],
-          ['PAN-001', '7803700000025', 'Pan Hallulla Especial 1kg', 'Pan tradicional recién horneado por kilo', 'Panadería La Palmera', 3, 2, 1350, 850, 25, 5, 'kg', 1, 1]
+          ['BEB-001', '7801610001014', 'Bebida Refrescante 1.5L', 'Bebida de fantasía 1.5 litros', 'Genérica', 1, null, 1700, 1100, 48, 10, 'unidad', 0, 1],
+          ['ABR-001', '7802500000011', 'Arroz Grado 1 Selección 1kg', 'Arroz grano largo seleccionado 1 kilo', 'Genérica', 2, null, 1450, 950, 36, 8, 'unidad', 0, 1],
+          ['PAN-001', '7803700000025', 'Pan Especial 1kg', 'Pan tradicional recién horneado por kilo', 'Panadería', 3, null, 1350, 850, 25, 5, 'kg', 1, 1]
         ];
         for (const prod of defaultProds) {
           await this.connection.execute(
@@ -915,37 +1108,36 @@ class DatabaseManager {
         }
       }
 
-      // Clientes iniciales para fiar con 30.000 de crédito si no existen
-      const cliCount = await this.connection.select<{ c: number }>("SELECT count(*) as c FROM clientes");
-      if (!cliCount || cliCount[0]?.c === 0) {
-        const defaultClients = [
-          ['15.874.321-3', 'Juan Carlos Pérez González', '+56 9 9123 4567', 'juan.perez@gmail.com', 'Calle Los Alerces 742', 'Santiago', 30000, 0],
-          ['17.654.321-3', 'María Elena Soto Martínez', '+56 9 8234 5678', 'maria.soto@gmail.com', 'Pasaje Las Flores 158', 'Santiago', 30000, 0],
-          ['19.432.109-0', 'Carlos Andrés Muñoz Valdés', '+56 9 7345 6789', 'carlos.munoz@gmail.com', 'Av. Central 890', 'Santiago', 30000, 0]
-        ];
-        for (const cl of defaultClients) {
-          await this.connection.execute(
-            "INSERT OR IGNORE INTO clientes (rut, nombre, telefono, email, direccion, ciudad, limite_credito, saldo_deudor, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)",
-            cl
-          );
-        }
-      }
+      // Clientes: limpio para que el comerciante ingrese sus clientes y fiados reales
 
-      // Usuarios iniciales por defecto si no existen
+      // Usuarios oficiales de La Palmera (hashes SHA-256 con sal, sin contraseñas en texto plano)
       const userCount = await this.connection.select<{ c: number }>("SELECT count(*) as c FROM usuarios");
-      if (!userCount || userCount[0]?.c === 0) {
+      if (!userCount || userCount.length === 0 || Number(userCount[0]?.c ?? 0) === 0) {
         const defaultUsers = [
-          ['yasna', 'Carlos1941', 'Yasna', 'admin'],
-          ['karla', 'Karla2004', 'Karla', 'supervisor'],
-          ['ventas', '', 'VENTAS', 'cajero']
+          ['yasna', 'sha256:36fd5f3d894e6533f7c3626dcae0bc22ea24c4488bd0d2745c2fa2eba61b1c31', 'Yasna', 'admin', 'yasna@lapalmera.cl', ''],
+          ['karla', 'sha256:058b4fdd0fc26138204c0f9ff18ea794272080f3183141a844fb1ce8cdd6db34', 'Karla', 'supervisor', 'karla@lapalmera.cl', ''],
+          ['ventas', '', 'VENTAS', 'cajero', 'ventas@lapalmera.cl', '']
         ];
         for (const u of defaultUsers) {
           await this.connection.execute(
-            "INSERT OR IGNORE INTO usuarios (username, password_hash, nombre, rol, activo) VALUES (?, ?, ?, ?, 1)",
+            "INSERT OR IGNORE INTO usuarios (username, password_hash, nombre, rol, email, telefono, activo) VALUES (?, ?, ?, ?, ?, ?, 1)",
             u
           );
         }
       }
+
+      // Asegurar que productos pesables (pan, marraqueta, hallulla, kg, granel) tengan permite_decimales = 1
+      await this.connection.execute(
+        `UPDATE productos 
+         SET permite_decimales = 1 
+         WHERE LOWER(unidad_medida) IN ('kg', 'kilo', 'kilos', 'gramo', 'gramos', 'granel') 
+            OR LOWER(nombre) LIKE '%pan %' 
+            OR LOWER(nombre) LIKE '%pan' 
+            OR LOWER(nombre) LIKE 'pan %'
+            OR LOWER(nombre) LIKE '%marraqueta%'
+            OR LOWER(nombre) LIKE '%hallulla%'
+            OR LOWER(nombre) LIKE '%amasado%'`
+      );
     } catch (e) {
       console.warn('[SQLite] Aviso en seeds iniciales:', e);
     }
@@ -959,19 +1151,20 @@ class DatabaseManager {
       await conn.execute('PRAGMA foreign_keys = OFF;');
     } catch {}
 
-    // 2. Limpieza exhaustiva de todas las tablas
+    // 2. Limpieza exhaustiva de todas las tablas en orden topológico estricto (hijas antes que padres,
+    //    garantizando éxito incluso con PRAGMA foreign_keys = ON en pools de conexión sqlx)
     const tablesToClear = [
       'venta_items',
       'venta_pagos',
+      'cliente_movimientos',
       'ventas',
       'compra_items',
       'compras',
-      'cliente_movimientos',
-      'clientes',
       'inventario_movimientos',
       'caja_movimientos',
       'caja_sesiones',
       'productos',
+      'clientes',
       'proveedores',
       'sync_queue',
       'respaldos',
@@ -997,8 +1190,8 @@ class DatabaseManager {
     }
 
     // 3. Limpiar BrowserFallbackDB si está en uso
-    if (this.fallbackDB) {
-      this.fallbackDB.clearAll();
+    if (conn instanceof BrowserFallbackDB) {
+      conn.clearAll();
     }
 
     // 4. Limpiar todas las claves de localStorage y sessionStorage
@@ -1009,7 +1202,6 @@ class DatabaseManager {
         window.localStorage.removeItem('lapalmera_cart_items');
         window.localStorage.removeItem('lapalmera_last_sale');
         window.localStorage.removeItem('lapalmera_dashboard_cache');
-        window.localStorage.removeItem('lapalmera_theme');
       }
     } catch (e) {
       console.warn('Error limpiando localStorage:', e);

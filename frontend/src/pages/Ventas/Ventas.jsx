@@ -6,6 +6,7 @@ import ventaService from "../../services/ventaService";
 import TicketVenta from "../../components/Ventas/TicketVenta";
 import { playSuccessBeep, playWarningBeep, playSaleDoneBeep } from "../../utils/audioBeep";
 import { formatRut, validarRut } from "../../utils/validators";
+import { APP_VERSION } from "../../constants/version";
 
 const emptyForm = {
   cliente: "",
@@ -46,6 +47,7 @@ function Ventas() {
   const [ventaConfirmada, setVentaConfirmada] = useState(null);
   const [ticketToPrint, setTicketToPrint] = useState(null);
   const [showProductos, setShowProductos] = useState(false);
+  const [pesajeModal, setPesajeModal] = useState(null);
   const scannerRef = useRef(null);
 
   const focusScanner = useCallback(() => {
@@ -109,38 +111,6 @@ function Ventas() {
     focusScanner();
   }, [focusScanner]);
 
-  useEffect(() => {
-    const handleGlobalKeyDown = (e) => {
-      if (e.key === "F1") {
-        e.preventDefault();
-        setForm((prev) => ({ ...prev, metodoPago: "EFECTIVO" }));
-      } else if (e.key === "F2") {
-        e.preventDefault();
-        setForm((prev) => ({ ...prev, metodoPago: "DEBITO" }));
-      } else if (e.key === "F3") {
-        e.preventDefault();
-        setForm((prev) => ({ ...prev, metodoPago: METODO_FIADO }));
-      } else if (e.key === "F4") {
-        e.preventDefault();
-        setForm((prev) => ({ ...prev, metodoPago: "TRANSFERENCIA" }));
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        if (showCobro) {
-          setShowCobro(false);
-        } else if (showNuevoCliente) {
-          setShowNuevoCliente(false);
-        } else if (ventaConfirmada) {
-          setVentaConfirmada(null);
-        } else {
-          focusScanner();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleGlobalKeyDown);
-    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
-  }, [showCobro, showNuevoCliente, ventaConfirmada, focusScanner]);
-
   const subtotal = useMemo(
     () => cart.reduce((sum, item) => sum + Number(item.subtotal || 0), 0),
     [cart],
@@ -194,7 +164,149 @@ function Ventas() {
     setError("");
   };
 
-  const agregarProducto = (producto, onMensaje) => {
+  const esPesable = useCallback((producto) => {
+    if (!producto) return false;
+    if (producto.permiteDecimales === true || producto.permite_decimales === 1) return true;
+    const u = String(producto.unidadMedida || producto.unidad_medida || "").trim().toLowerCase();
+    if (["kg", "kilo", "kilos", "kilogramo", "kilogramos", "gramo", "gramos", "granel", "gr", "g"].includes(u)) return true;
+    const cat = String(producto.categoriaNombre || producto.categoria?.nombre || producto.categoria || "").trim().toLowerCase();
+    if (cat.includes("fruta") || cat.includes("verdura") || cat.includes("panader") || cat.includes("granel") || cat.includes("pesable")) return true;
+    const nombre = String(producto.nombre || "").toLowerCase();
+    if (
+      nombre.includes("marraqueta") ||
+      nombre.includes("hallulla") ||
+      nombre.includes("pan batido") ||
+      nombre.includes("pan frances") ||
+      nombre.includes("pan amasado") ||
+      nombre.includes("coliza") ||
+      nombre.includes("doblada") ||
+      /\bpan\b/i.test(nombre) ||
+      nombre.includes("palta") ||
+      nombre.includes("tomate") ||
+      nombre.includes("papa") ||
+      nombre.includes("limon") ||
+      nombre.includes("limón") ||
+      nombre.includes("platano") ||
+      nombre.includes("plátano") ||
+      nombre.includes("banana") ||
+      nombre.includes("manzana") ||
+      nombre.includes("naranja") ||
+      nombre.includes("cebolla") ||
+      nombre.includes("zanahoria") ||
+      nombre.includes("lechuga") ||
+      nombre.includes("uva") ||
+      nombre.includes("pera") ||
+      nombre.includes("frutilla") ||
+      nombre.includes("sandia") ||
+      nombre.includes("sandía") ||
+      nombre.includes("melon") ||
+      nombre.includes("melón") ||
+      nombre.includes("zapallo") ||
+      nombre.includes("pepino") ||
+      nombre.includes("choclo") ||
+      nombre.includes("pimenton") ||
+      nombre.includes("pimentón") ||
+      nombre.includes("durazno") ||
+      nombre.includes("damasco") ||
+      nombre.includes("ciruela") ||
+      nombre.includes("cereza") ||
+      nombre.includes("kiwi") ||
+      nombre.includes("mandarina") ||
+      nombre.includes("frutos secos") ||
+      nombre.includes("almendra") ||
+      nombre.includes("nuez") ||
+      nombre.includes("mani") ||
+      nombre.includes("maní") ||
+      nombre.includes("granel")
+    ) {
+      return true;
+    }
+    return false;
+  }, []);
+
+  const abrirModalPesaje = useCallback((producto, modoEdicion = false) => {
+    const existente = cart.find((it) => it._id === producto._id);
+    let pesoInicialNum = 1;
+    if (modoEdicion && existente) {
+      pesoInicialNum = Number(existente.cantidad) || 1;
+    } else if (existente) {
+      pesoInicialNum = Number(existente.cantidad) || 1;
+    }
+    
+    const precio = Number(producto.precioVenta || producto.precioUnitario || 0);
+    const pesoFormateado = pesoInicialNum.toFixed(3);
+    const gramos = Math.round(pesoInicialNum * 1000);
+    const dinero = Math.round(pesoInicialNum * precio);
+
+    setPesajeModal({
+      producto: {
+        ...producto,
+        precioVenta: precio,
+        precioUnitario: precio,
+      },
+      modoEdicion,
+      pesoKg: pesoFormateado,
+      pesoGramos: String(gramos),
+      montoDinero: String(dinero),
+      tab: "peso",
+    });
+  }, [cart]);
+
+  const confirmarPesaje = (pesoFinalKg) => {
+    if (!pesajeModal?.producto) return;
+    const prod = pesajeModal.producto;
+    const pesoNum = Math.max(0.001, Number(String(pesoFinalKg).replace(",", ".")) || 0.001);
+    const precio = Number(prod.precioVenta || prod.precioUnitario || 0);
+    const subtotal = Math.round(pesoNum * precio);
+    const stockDisponible = Number(prod.stockActual ?? 9999);
+
+    if (stockDisponible > 0 && pesoNum > stockDisponible) {
+      setError(`Stock insuficiente para ${prod.nombre}: solo hay ${stockDisponible} kg.`);
+      playWarningBeep();
+      return;
+    }
+
+    playSuccessBeep();
+    setCart((prev) => {
+      const idx = prev.findIndex((item) => item._id === prod._id);
+      if (idx >= 0) {
+        return prev.map((item, i) => {
+          if (i !== idx) return item;
+          return {
+            ...item,
+            cantidad: pesoNum,
+            unidadMedida: prod.unidadMedida || "Kg",
+            permiteDecimales: true,
+            subtotal,
+          };
+        });
+      }
+
+      return [
+        ...prev,
+        {
+          _id: prod._id,
+          codigo: prod.codigo,
+          nombre: prod.nombre,
+          imagen: prod.imagen || prod.imagenUrl || "",
+          imagenUrl: prod.imagenUrl || prod.imagen || "",
+          stockActual: stockDisponible,
+          precioUnitario: precio,
+          cantidad: pesoNum,
+          unidadMedida: prod.unidadMedida || "Kg",
+          permiteDecimales: true,
+          descuento: 0,
+          subtotal,
+        },
+      ];
+    });
+
+    setPesajeModal(null);
+    setError("");
+    focusScanner();
+  };
+
+  const agregarProducto = (producto, onMensaje, cantidadForzada = null) => {
     const mostrarMensaje = onMensaje || ((mensaje) => setError(mensaje));
     const esActivo = producto?.activo !== false && producto?.activo !== 0;
     const stockDisponible = Number(producto?.stockActual ?? 0);
@@ -211,9 +323,16 @@ function Ventas() {
       return "sin_stock";
     }
 
+    // Si es producto pesable (pan, kilos, granel) y no se especificó peso forzado, abrir modal de balanza
+    if (cantidadForzada == null && esPesable(producto)) {
+      abrirModalPesaje(producto, false);
+      return "pesaje";
+    }
+
+    const cantidadAAgregar = cantidadForzada != null ? Number(cantidadForzada) : 1;
     const existente = cart.find((item) => item._id === producto._id);
 
-    if (existente && Number(existente.cantidad) >= stockDisponible) {
+    if (existente && (Number(existente.cantidad) + cantidadAAgregar) > stockDisponible && cantidadForzada == null) {
       playWarningBeep();
       mostrarMensaje(
         `Stock máximo alcanzado para ${producto.nombre}: solo hay ${stockDisponible} disponible(s).`,
@@ -231,25 +350,30 @@ function Ventas() {
             _id: producto._id,
             codigo: producto.codigo,
             nombre: producto.nombre,
+            imagen: producto.imagen || producto.imagenUrl || "",
+            imagenUrl: producto.imagenUrl || producto.imagen || "",
             stockActual: stockDisponible,
             precioUnitario: Number(producto.precioVenta || 0),
-            cantidad: 1,
+            cantidad: cantidadAAgregar,
+            unidadMedida: producto.unidadMedida || (esPesable(producto) ? "Kg" : "Unidad"),
+            permiteDecimales: esPesable(producto),
             descuento: 0,
-            subtotal: Number(producto.precioVenta || 0),
+            subtotal: Math.round(cantidadAAgregar * Number(producto.precioVenta || 0)),
           },
         ];
       }
 
       return prev.map((item) => {
         if (item._id !== producto._id) return item;
-        const cantidad = Math.min(
-          Number(item.cantidad) + 1,
-          stockDisponible || 1,
-        );
+        const cantidad = cantidadForzada != null
+          ? cantidadAAgregar
+          : Math.min(Number(item.cantidad) + 1, stockDisponible || 1);
+        const pesable = esPesable(item);
+        const cantidadFinal = pesable ? Math.round(cantidad * 1000) / 1000 : cantidad;
         return {
           ...item,
-          cantidad,
-          subtotal: cantidad * Number(item.precioUnitario || 0),
+          cantidad: cantidadFinal,
+          subtotal: Math.round(cantidadFinal * Number(item.precioUnitario || 0)),
         };
       });
     });
@@ -258,25 +382,40 @@ function Ventas() {
     return "agregado";
   };
 
-  const cambiarCantidad = (id, value) => {
-    const solicitada = Number(value);
+  const cambiarCantidad = (id, value, delta = null) => {
     setCart((prev) =>
       prev.map((item) => {
         if (item._id !== id) return item;
+        const pesable = esPesable(item);
+        const minPermitido = pesable ? 0.001 : 1;
         const disponible = Number(item.stockActual) || 1;
+
+        let solicitada;
+        if (delta !== null) {
+          solicitada = Number(item.cantidad) + delta;
+        } else {
+          solicitada = parseFloat(String(value).replace(",", "."));
+        }
+
         const cantidad = Math.min(
-          Math.max(Number.isFinite(solicitada) ? solicitada : 1, 1),
+          Math.max(Number.isFinite(solicitada) ? solicitada : minPermitido, minPermitido),
           disponible,
         );
+
         if (Number.isFinite(solicitada) && solicitada > disponible) {
           setError(`Solo hay ${disponible} en stock para ${item.nombre}.`);
         } else if (error) {
           setError("");
         }
+
+        const cantidadFinal = pesable
+          ? Math.round(cantidad * 1000) / 1000
+          : Math.round(cantidad);
+
         return {
           ...item,
-          cantidad,
-          subtotal: cantidad * Number(item.precioUnitario || 0),
+          cantidad: cantidadFinal,
+          subtotal: Math.round(cantidadFinal * Number(item.precioUnitario || 0)),
         };
       }),
     );
@@ -346,6 +485,7 @@ function Ventas() {
   };
 
   const buscarScannerRef = useRef(null);
+  const cancelarRef = useRef(null);
 
   useEffect(() => {
     buscarScannerRef.current = buscarScanner;
@@ -357,33 +497,55 @@ function Ventas() {
     let timeoutId = null;
 
     const handler = (e) => {
-      // Hotkeys globales de POS
+      // Hotkeys globales unificados de POS (F1-F4, ESC)
+      const modalSecundarioAbierto = Boolean(showNuevoCliente || ticketToPrint || pesajeModal || saving);
       if (e.key === "F1") {
         e.preventDefault();
-        if (cart.length > 0) {
-          setForm((prev) => ({ ...prev, metodoPago: "EFECTIVO" }));
+        if (modalSecundarioAbierto) return;
+        setForm((prev) => ({ ...prev, metodoPago: "EFECTIVO" }));
+        if (cart.length > 0 && !showCobro) {
+          setMontoRecibido("");
           setShowCobro(true);
         }
         return;
       }
       if (e.key === "F2") {
         e.preventDefault();
-        if (cart.length > 0) {
-          setForm((prev) => ({ ...prev, metodoPago: "DEBITO" }));
+        if (modalSecundarioAbierto) return;
+        setForm((prev) => ({ ...prev, metodoPago: "DEBITO" }));
+        if (cart.length > 0 && !showCobro) {
           setShowCobro(true);
         }
         return;
       }
       if (e.key === "F3") {
         e.preventDefault();
-        if (cart.length > 0) {
-          setForm((prev) => ({ ...prev, metodoPago: "FIADO" }));
+        if (modalSecundarioAbierto) return;
+        setForm((prev) => ({ ...prev, metodoPago: METODO_FIADO }));
+        if (cart.length > 0 && !showCobro) {
+          if (form.cliente) {
+            setShowCobro(true);
+          } else {
+            setToast({ type: "warning", text: "Método FIADO seleccionado. Selecciona un cliente antes de cobrar." });
+          }
+        }
+        return;
+      }
+      if (e.key === "F4") {
+        e.preventDefault();
+        if (modalSecundarioAbierto) return;
+        setForm((prev) => ({ ...prev, metodoPago: "TRANSFERENCIA" }));
+        if (cart.length > 0 && !showCobro) {
           setShowCobro(true);
         }
         return;
       }
       if (e.key === "Escape") {
-        if (showCobro) {
+        e.preventDefault();
+        if (pesajeModal) {
+          setPesajeModal(null);
+          focusScanner();
+        } else if (showCobro) {
           setShowCobro(false);
           focusScanner();
         } else if (showNuevoCliente) {
@@ -392,13 +554,18 @@ function Ventas() {
         } else if (ticketToPrint) {
           setTicketToPrint(null);
           focusScanner();
+        } else if (ventaConfirmada) {
+          setVentaConfirmada(null);
+          focusScanner();
         } else if (cart.length > 0) {
-          cancelar();
+          cancelarRef.current?.();
+        } else {
+          focusScanner();
         }
         return;
       }
 
-      if (showCobro || showNuevoCliente || ticketToPrint || saving) return;
+      if (showCobro || showNuevoCliente || ticketToPrint || pesajeModal || saving) return;
 
       const target = e.target;
       const esCampoEditable =
@@ -436,7 +603,7 @@ function Ventas() {
       window.removeEventListener("keydown", handler);
       if (timeoutId) window.clearTimeout(timeoutId);
     };
-  }, [showCobro, showNuevoCliente, ticketToPrint, saving, cart.length, focusScanner]);
+  }, [showCobro, showNuevoCliente, ticketToPrint, pesajeModal, ventaConfirmada, saving, cart.length, form.cliente, focusScanner]);
 
   const abrirCobro = () => {
     const errores = validarFormulario();
@@ -711,6 +878,10 @@ function Ventas() {
     setToast({ type: "secondary", text: "La venta fue cancelada." });
   };
 
+  useEffect(() => {
+    cancelarRef.current = cancelar;
+  });
+
   const formatoMoneda = useCallback((value) => {
     const numeric = Number(value) || 0;
     return `$${numeric.toLocaleString("es-CL")}`;
@@ -721,11 +892,19 @@ function Ventas() {
       {/* 1. BARRA SUPERIOR COMPACTA */}
       <div className="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
         <div className="d-flex align-items-center gap-2">
-          <h4 className="fw-bold mb-0 text-success d-flex align-items-center gap-1" style={{ fontSize: "1.1rem" }}>
+          <h4 className="fw-bold mb-0 d-flex align-items-center gap-1" style={{ fontSize: "1.1rem", color: "var(--lp-primary, #10b981)" }}>
             <i className="bi bi-cart-check"></i> Ventas
           </h4>
-          <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25" style={{ fontSize: "0.68rem" }}>
-            v22 POS
+          <span
+            className="badge border px-2 py-0"
+            style={{
+              fontSize: "0.68rem",
+              backgroundColor: "var(--lp-hover, rgba(16,185,129,0.15))",
+              color: "var(--lp-primary-light, var(--lp-primary, #10b981))",
+              borderColor: "var(--lp-border, rgba(16,185,129,0.25))",
+            }}
+          >
+            {APP_VERSION} POS
           </span>
         </div>
 
@@ -869,7 +1048,8 @@ function Ventas() {
                       <span className="fw-semibold text-truncate" style={{ maxWidth: "100px" }}>
                         {prod.nombre}
                       </span>
-                      <strong className="text-success">{formatPrice(prod.precioVenta)}</strong>
+                      <strong className="text-success">{formatPrice(prod.precioVenta)}{esPesable(prod) ? "/kg" : ""}</strong>
+                      {esPesable(prod) && <span className="badge bg-warning bg-opacity-25 text-dark p-0 px-1" style={{ fontSize: "0.6rem" }}>⚖️</span>}
                     </button>
                   ))}
                 </div>
@@ -915,16 +1095,21 @@ function Ventas() {
                             <span className="fw-semibold small text-dark d-block text-truncate">{producto.nombre}</span>
                             <div className="d-flex align-items-center gap-2">
                               <span className="text-muted small">[Cód: {producto.codigo}]</span>
-                              <span className="text-success fw-bold small">{formatPrice(producto.precioVenta)}</span>
+                              <span className="text-success fw-bold small">{formatPrice(producto.precioVenta)}{esPesable(producto) ? " /kg" : ""}</span>
                               <span className={`badge ${Number(producto.stockActual) > 0 ? "bg-success" : "bg-secondary"}`} style={{ fontSize: "0.68rem" }}>
-                                Stock: {producto.stockActual}
+                                Stock: {producto.stockActual} {esPesable(producto) ? "kg" : ""}
                               </span>
+                              {esPesable(producto) && (
+                                <span className="badge bg-warning bg-opacity-25 text-dark" style={{ fontSize: "0.65rem" }}>
+                                  ⚖️ Kilo
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
                         <button
                           type="button"
-                          className="btn btn-sm btn-success py-1 px-2 flex-shrink-0"
+                          className={`btn btn-sm ${esPesable(producto) ? "btn-warning text-dark fw-semibold" : "btn-success"} py-1 px-2 flex-shrink-0`}
                           onClick={() => {
                             agregarProducto(producto);
                             setSearch("");
@@ -932,7 +1117,8 @@ function Ventas() {
                           }}
                           disabled={Number(producto.stockActual) <= 0}
                         >
-                          <i className="bi bi-plus-lg me-1"></i>Agregar
+                          <i className={`bi ${esPesable(producto) ? "bi-speedometer2" : "bi-plus-lg"} me-1`}></i>
+                          {esPesable(producto) ? "Pesar" : "Agregar"}
                         </button>
                       </div>
                     ))
@@ -976,10 +1162,10 @@ function Ventas() {
                 <table className="table table-hover align-middle mb-0 small">
                   <thead className="table-light sticky-top">
                     <tr>
-                      <th style={{ width: "42%" }}>Producto</th>
-                      <th className="text-center" style={{ width: "24%" }}>Cantidad</th>
+                      <th style={{ width: "38%" }}>Producto</th>
+                      <th className="text-center" style={{ width: "28%" }}>Cantidad / Peso</th>
                       <th className="text-end" style={{ width: "16%" }}>P. Unit</th>
-                      <th className="text-end" style={{ width: "18%" }}>Subtotal</th>
+                      <th className="text-end" style={{ width: "15%" }}>Subtotal</th>
                       <th style={{ width: "35px" }}></th>
                     </tr>
                   </thead>
@@ -992,54 +1178,121 @@ function Ventas() {
                               {(item.imagen || item.imagenUrl) ? (
                                 <img
                                   src={item.imagen || item.imagenUrl}
-                                  alt=""
-                                  className="rounded border flex-shrink-0"
-                                  style={{ width: "32px", height: "32px", objectFit: "cover" }}
+                                  alt={item.nombre}
+                                  className="rounded border flex-shrink-0 bg-white shadow-xs"
+                                  style={{ width: "36px", height: "36px", objectFit: "cover" }}
                                   onError={(e) => {
-                                    e.target.style.display = "none";
+                                    e.currentTarget.style.display = "none";
+                                    if (e.currentTarget.nextElementSibling) {
+                                      e.currentTarget.nextElementSibling.style.display = "flex";
+                                    }
                                   }}
                                 />
                               ) : null}
+                              <div
+                                className="rounded border bg-light text-secondary align-items-center justify-content-center flex-shrink-0 shadow-xs"
+                                style={{
+                                  width: "36px",
+                                  height: "36px",
+                                  display: (item.imagen || item.imagenUrl) ? "none" : "flex",
+                                }}
+                              >
+                                <i className="bi bi-box-seam" style={{ fontSize: "1rem" }}></i>
+                              </div>
                               <div className="min-w-0">
-                                <div className="fw-semibold text-dark text-truncate" style={{ maxWidth: "200px" }}>
-                                  {item.nombre}
+                                <div className="fw-semibold text-dark text-truncate d-flex align-items-center gap-1" style={{ maxWidth: "200px" }}>
+                                  <span>{item.nombre}</span>
+                                  {esPesable(item) && (
+                                    <span className="badge bg-warning bg-opacity-25 text-dark border-0 py-0 px-1" style={{ fontSize: "0.65rem" }}>
+                                      ⚖️ Kilo
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-muted" style={{ fontSize: "0.72rem" }}>
-                                  Stock: {item.stockActual}
+                                  Stock: {item.stockActual} {esPesable(item) ? "kg" : "unid"}
                                 </div>
                               </div>
                             </div>
                           </td>
                           <td className="text-center">
-                            <div className="input-group input-group-sm justify-content-center" style={{ maxWidth: "115px", margin: "0 auto" }}>
-                              <button
-                                type="button"
-                                className="btn btn-outline-secondary py-0 px-2"
-                                disabled={Number(item.cantidad) <= 1}
-                                onClick={() => cambiarCantidad(item._id, Number(item.cantidad) - 1)}
-                              >
-                                -
-                              </button>
-                              <input
-                                type="number"
-                                className="form-control text-center p-0 fw-bold"
-                                min="1"
-                                max={item.stockActual}
-                                value={item.cantidad}
-                                onChange={(e) => cambiarCantidad(item._id, e.target.value)}
-                              />
-                              <button
-                                type="button"
-                                className="btn btn-outline-secondary py-0 px-2"
-                                disabled={Number(item.cantidad) >= Number(item.stockActual)}
-                                onClick={() => cambiarCantidad(item._id, Number(item.cantidad) + 1)}
-                              >
-                                +
-                              </button>
-                            </div>
+                            {esPesable(item) ? (
+                              <div className="d-flex flex-column align-items-center">
+                                <div className="input-group input-group-sm justify-content-center" style={{ maxWidth: "160px", margin: "0 auto" }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline-secondary py-0 px-2"
+                                    disabled={Number(item.cantidad) <= 0.05}
+                                    onClick={() => cambiarCantidad(item._id, null, -0.1)}
+                                    title="Restar 100 gramos"
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="number"
+                                    step="0.001"
+                                    min="0.001"
+                                    max={item.stockActual}
+                                    className="form-control text-center p-0 fw-bold border-success text-success"
+                                    value={item.cantidad}
+                                    onChange={(e) => cambiarCantidad(item._id, e.target.value)}
+                                    title="Editar peso en Kg"
+                                  />
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline-secondary py-0 px-2"
+                                    disabled={Number(item.cantidad) >= Number(item.stockActual)}
+                                    onClick={() => cambiarCantidad(item._id, null, 0.1)}
+                                    title="Sumar 100 gramos"
+                                  >
+                                    +
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-success py-0 px-2 shadow-xs"
+                                    onClick={() => abrirModalPesaje(item, true)}
+                                    title="Abrir balanza y conversión para este producto"
+                                  >
+                                    <i className="bi bi-speedometer2"></i>
+                                  </button>
+                                </div>
+                                <div className="d-flex align-items-center gap-1 mt-1" style={{ fontSize: "0.7rem" }}>
+                                  <span className="badge bg-success bg-opacity-10 text-success border-0">
+                                    {Math.round(Number(item.cantidad) * 1000)} g
+                                  </span>
+                                  <span className="text-muted">({Number(item.cantidad).toFixed(3)} Kg)</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="input-group input-group-sm justify-content-center" style={{ maxWidth: "115px", margin: "0 auto" }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-secondary py-0 px-2"
+                                  disabled={Number(item.cantidad) <= 1}
+                                  onClick={() => cambiarCantidad(item._id, null, -1)}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="form-control text-center p-0 fw-bold"
+                                  min="1"
+                                  max={item.stockActual}
+                                  value={item.cantidad}
+                                  onChange={(e) => cambiarCantidad(item._id, e.target.value)}
+                                />
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-secondary py-0 px-2"
+                                  disabled={Number(item.cantidad) >= Number(item.stockActual)}
+                                  onClick={() => cambiarCantidad(item._id, null, 1)}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            )}
                           </td>
                           <td className="text-end text-nowrap text-muted">
-                            {formatPrice(item.precioUnitario)}
+                            {formatPrice(item.precioUnitario)}{esPesable(item) ? " / kg" : ""}
                           </td>
                           <td className="text-end text-nowrap fw-bold text-success">
                             {formatPrice(item.subtotal)}
@@ -1290,10 +1543,38 @@ function Ventas() {
                       {productos.length > 0 ? (
                         productos.map((producto) => (
                           <tr key={producto._id}>
-                            <td className="fw-semibold">{producto.nombre}</td>
+                            <td className="fw-semibold">
+                              <div className="d-flex align-items-center gap-2">
+                                {(producto.imagen || producto.imagenUrl) ? (
+                                  <img
+                                    src={producto.imagen || producto.imagenUrl}
+                                    alt={producto.nombre}
+                                    className="rounded border flex-shrink-0 bg-white shadow-xs"
+                                    style={{ width: "36px", height: "36px", objectFit: "cover" }}
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = "none";
+                                      if (e.currentTarget.nextElementSibling) {
+                                        e.currentTarget.nextElementSibling.style.display = "flex";
+                                      }
+                                    }}
+                                  />
+                                ) : null}
+                                <div
+                                  className="rounded border bg-light text-secondary align-items-center justify-content-center flex-shrink-0 shadow-xs"
+                                  style={{
+                                    width: "36px",
+                                    height: "36px",
+                                    display: (producto.imagen || producto.imagenUrl) ? "none" : "flex",
+                                  }}
+                                >
+                                  <i className="bi bi-box-seam" style={{ fontSize: "1rem" }}></i>
+                                </div>
+                                <span className="text-truncate" style={{ maxWidth: "250px" }}>{producto.nombre}</span>
+                              </div>
+                            </td>
                             <td className="text-nowrap">{producto.codigo}</td>
                             <td className="text-end">
-                              {formatPrice(producto.precioVenta)}
+                              {formatPrice(producto.precioVenta)}{esPesable(producto) ? " /kg" : ""}
                             </td>
                             <td className="text-end">
                               <span
@@ -1304,13 +1585,13 @@ function Ventas() {
                                 }`}
                               >
                                 {Number(producto.stockActual) > 0
-                                  ? producto.stockActual
+                                  ? `${producto.stockActual} ${esPesable(producto) ? "kg" : ""}`
                                   : "Sin stock"}
                               </span>
                             </td>
                             <td className="text-center">
                               <button
-                                className="btn btn-sm btn-outline-success"
+                                className={`btn btn-sm ${esPesable(producto) ? "btn-warning text-dark fw-semibold" : "btn-outline-success"}`}
                                 onClick={() => {
                                   agregarProducto(producto);
                                   focusScanner();
@@ -1319,7 +1600,8 @@ function Ventas() {
                                   Number(producto.stockActual) <= 0
                                 }
                               >
-                                <i className="bi bi-plus-lg me-1"></i>Agregar
+                                <i className={`bi ${esPesable(producto) ? "bi-speedometer2" : "bi-plus-lg"} me-1`}></i>
+                                {esPesable(producto) ? "Pesar" : "Agregar"}
                               </button>
                             </td>
                           </tr>
@@ -1346,38 +1628,65 @@ function Ventas() {
                           key={producto._id}
                           className="list-group-item d-flex justify-content-between align-items-center gap-3 py-3"
                         >
-                          <div className="flex-grow-1 min-w-0">
-                            <div className="fw-semibold">{producto.nombre}</div>
-                            <div className="text-muted small text-truncate">
-                              Código: {producto.codigo}
+                          <div className="d-flex align-items-center gap-2 flex-grow-1 min-w-0">
+                            {(producto.imagen || producto.imagenUrl) ? (
+                              <img
+                                src={producto.imagen || producto.imagenUrl}
+                                alt={producto.nombre}
+                                className="rounded border flex-shrink-0 bg-white shadow-xs"
+                                style={{ width: "40px", height: "40px", objectFit: "cover" }}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                  if (e.currentTarget.nextElementSibling) {
+                                    e.currentTarget.nextElementSibling.style.display = "flex";
+                                  }
+                                }}
+                              />
+                            ) : null}
+                            <div
+                              className="rounded border bg-light text-secondary align-items-center justify-content-center flex-shrink-0 shadow-xs"
+                              style={{
+                                width: "40px",
+                                height: "40px",
+                                display: (producto.imagen || producto.imagenUrl) ? "none" : "flex",
+                              }}
+                            >
+                              <i className="bi bi-box-seam" style={{ fontSize: "1.1rem" }}></i>
                             </div>
-                            <div className="d-flex align-items-center gap-3 mt-1">
-                              <span className="text-success fw-semibold">
-                                {formatPrice(producto.precioVenta)}
-                              </span>
-                              <span
-                                className={`badge ${
-                                  Number(producto.stockActual) > 0
-                                    ? "bg-success"
-                                    : "bg-secondary"
-                                }`}
-                              >
-                                {Number(producto.stockActual) > 0
-                                  ? `Stock: ${producto.stockActual}`
-                                  : "Sin stock"}
-                              </span>
+                            <div className="min-w-0 flex-grow-1">
+                              <div className="fw-semibold text-truncate">{producto.nombre}</div>
+                              <div className="text-muted small text-truncate">
+                                Código: {producto.codigo}
+                              </div>
+                              <div className="d-flex align-items-center gap-3 mt-1">
+                                <span className="text-success fw-semibold">
+                                  {formatPrice(producto.precioVenta)}{esPesable(producto) ? " /kg" : ""}
+                                </span>
+                                <span
+                                  className={`badge ${
+                                    Number(producto.stockActual) > 0
+                                      ? "bg-success"
+                                      : "bg-secondary"
+                                  }`}
+                                >
+                                  {Number(producto.stockActual) > 0
+                                    ? `Stock: ${producto.stockActual} ${esPesable(producto) ? "kg" : ""}`
+                                    : "Sin stock"}
+                                </span>
+                              </div>
                             </div>
                           </div>
                           <button
                             type="button"
-                            className="btn btn-outline-success text-nowrap"
+                            className={`btn text-nowrap ${esPesable(producto) ? "btn-warning text-dark fw-semibold" : "btn-outline-success"}`}
                             onClick={() => {
                               agregarProducto(producto);
                               focusScanner();
                             }}
                             disabled={Number(producto.stockActual) <= 0}
                           >
-                            <i className="bi bi-plus-lg me-1"></i>Agregar
+                            <i className={`bi ${esPesable(producto) ? "bi-speedometer2" : "bi-plus-lg"} me-1`}></i>
+                            {esPesable(producto) ? "Pesar" : "Agregar"}
                           </button>
                         </div>
                       ))
@@ -1415,12 +1724,6 @@ function Ventas() {
           className="modal d-block"
           tabIndex={-1}
           style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.preventDefault();
-              cerrarCobro();
-            }
-          }}
         >
           <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
             <div className="modal-content">
@@ -1603,12 +1906,6 @@ function Ventas() {
           className="modal d-block"
           tabIndex={-1}
           style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.preventDefault();
-              cerrarNuevoCliente();
-            }
-          }}
         >
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content">
@@ -1683,6 +1980,356 @@ function Ventas() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL BALANZA Y CONVERSIÓN DE PESO A DINERO (Pan y Productos por Kilo / Granel) */}
+      {pesajeModal && (
+        <div
+          className="modal fade show d-block"
+          tabIndex="-1"
+          style={{ backgroundColor: "rgba(15, 23, 42, 0.7)", zIndex: 1060, backdropFilter: "blur(2px)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+              {/* Encabezado */}
+              <div className="modal-header bg-success text-white py-3 border-0">
+                <div className="d-flex align-items-center gap-2">
+                  <div
+                    className="bg-white text-success rounded-circle d-flex align-items-center justify-content-center shadow-sm"
+                    style={{ width: "38px", height: "38px" }}
+                  >
+                    <i className="bi bi-speedometer2 fs-5"></i>
+                  </div>
+                  <div>
+                    <h5 className="modal-title fw-bold mb-0" style={{ fontSize: "1.1rem" }}>
+                      {pesajeModal.modoEdicion ? "Modificar Peso en Balanza" : "Balanza / Venta por Kilo"}
+                    </h5>
+                    <small className="text-white-50">
+                      Cálculo automático de peso y dinero
+                    </small>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() => setPesajeModal(null)}
+                ></button>
+              </div>
+
+              <div className="modal-body p-4">
+                {/* Ficha del Producto */}
+                <div className="d-flex justify-content-between align-items-center p-3 rounded-3 border mb-3" style={{ backgroundColor: "var(--lp-surface-alt)" }}>
+                  <div className="min-w-0">
+                    <span className="badge bg-success bg-opacity-20 text-success mb-1 fw-bold">
+                      ⚖️ Venta a Granel / Kilo
+                    </span>
+                    <h6 className="fw-bold text-truncate mb-0" style={{ maxWidth: "240px", color: "var(--lp-text)" }}>
+                      {pesajeModal.producto?.nombre}
+                    </h6>
+                    <div className="small mt-1" style={{ color: "var(--lp-text-secondary)" }}>
+                      Precio: <strong style={{ color: "var(--lp-text)" }}>{formatPrice(pesajeModal.producto?.precioVenta || pesajeModal.producto?.precioUnitario)} / Kg</strong>
+                      <span className="ms-2">| Stock: {pesajeModal.producto?.stockActual ?? 0} Kg</span>
+                    </div>
+                  </div>
+                  <div className="text-end ps-2">
+                    <span className="small d-block" style={{ color: "var(--lp-text-secondary)" }}>Total a Cobrar</span>
+                    <span className="fs-4 fw-extrabold text-success">
+                      {formatPrice(Number(pesajeModal.montoDinero) || 0)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Pestañas: Por Peso vs Por Dinero */}
+                <ul className="nav nav-pills nav-fill mb-3 p-1 rounded-3 border" style={{ backgroundColor: "var(--lp-surface-alt)" }}>
+                  <li className="nav-item">
+                    <button
+                      type="button"
+                      className={`nav-link py-1 fw-semibold small ${pesajeModal.tab === "peso" ? "active bg-success text-white shadow-xs" : "text-secondary"}`}
+                      onClick={() => setPesajeModal((prev) => ({ ...prev, tab: "peso" }))}
+                    >
+                      <i className="bi bi-speedometer2 me-1"></i>Poner Peso (Kg / g)
+                    </button>
+                  </li>
+                  <li className="nav-item">
+                    <button
+                      type="button"
+                      className={`nav-link py-1 fw-semibold small ${pesajeModal.tab === "dinero" ? "active bg-success text-white shadow-xs" : "text-secondary"}`}
+                      onClick={() => setPesajeModal((prev) => ({ ...prev, tab: "dinero" }))}
+                    >
+                      <i className="bi bi-cash-coin me-1"></i>Poner Dinero ($ CLP)
+                    </button>
+                  </li>
+                </ul>
+
+                {/* Vista 1: Entrada por Peso */}
+                {pesajeModal.tab === "peso" ? (
+                  <div>
+                    <div className="row g-2 mb-3">
+                      <div className="col-7">
+                        <label className="form-label small fw-bold mb-1" style={{ color: "var(--lp-text)" }}>
+                          Peso en Kilos (Kg)
+                        </label>
+                        <div className="input-group input-group-lg">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            className="form-control fw-bold text-center border-success"
+                            placeholder="Ej: 1.250"
+                            value={pesajeModal.pesoKg}
+                            autoFocus
+                            onChange={(e) => {
+                              const val = e.target.value.replace(",", ".");
+                              const num = parseFloat(val) || 0;
+                              const precio = Number(pesajeModal.producto?.precioVenta || pesajeModal.producto?.precioUnitario || 0);
+                              setPesajeModal((prev) => ({
+                                ...prev,
+                                pesoKg: val,
+                                pesoGramos: val ? String(Math.round(num * 1000)) : "",
+                                montoDinero: String(Math.round(num * precio)),
+                              }));
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                confirmarPesaje(pesajeModal.pesoKg);
+                              }
+                            }}
+                          />
+                          <span className="input-group-text bg-success text-white fw-bold">Kg</span>
+                        </div>
+                      </div>
+
+                      <div className="col-5">
+                        <label className="form-label small fw-bold mb-1" style={{ color: "var(--lp-text)" }}>
+                          Gramos (g)
+                        </label>
+                        <div className="input-group input-group-lg">
+                          <input
+                            type="number"
+                            className="form-control fw-bold text-center"
+                            placeholder="1250"
+                            value={pesajeModal.pesoGramos}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const num = parseInt(val, 10) || 0;
+                              const kg = num / 1000;
+                              const precio = Number(pesajeModal.producto?.precioVenta || pesajeModal.producto?.precioUnitario || 0);
+                              setPesajeModal((prev) => ({
+                                ...prev,
+                                pesoGramos: val,
+                                pesoKg: val ? (kg).toFixed(3) : "",
+                                montoDinero: String(Math.round(kg * precio)),
+                              }));
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                confirmarPesaje(pesajeModal.pesoKg);
+                              }
+                            }}
+                          />
+                          <span className="input-group-text fw-bold">g</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Botones Frecuentes / Atajos de Peso */}
+                    <div className="mb-3">
+                      <label className="form-label small mb-1 fw-semibold" style={{ color: "var(--lp-text-secondary)" }}>
+                        {/\bpan\b|hallulla|marraqueta|coliza|doblada/i.test(pesajeModal.producto?.nombre || "")
+                          ? "Medidas clásicas de panadería:"
+                          : "Pesos frecuentes / Medidas rápidas:"}
+                      </label>
+                      <div className="d-flex flex-wrap gap-1">
+                        {[
+                          { label: "1/4 Kg (250g)", kg: 0.25 },
+                          { label: "1/2 Kg (500g)", kg: 0.5 },
+                          { label: "3/4 Kg (750g)", kg: 0.75 },
+                          { label: "1 Kg", kg: 1.0 },
+                          { label: "1 ½ Kg (1.500g)", kg: 1.5 },
+                          { label: "2 Kg", kg: 2.0 },
+                          { label: "3 Kg", kg: 3.0 },
+                        ].map((preset) => {
+                          const precio = Number(pesajeModal.producto?.precioVenta || pesajeModal.producto?.precioUnitario || 0);
+                          return (
+                            <button
+                              key={preset.label}
+                              type="button"
+                              className="btn btn-outline-secondary btn-sm rounded-pill fw-semibold py-1 px-2"
+                              style={{ fontSize: "0.78rem" }}
+                              onClick={() => {
+                                setPesajeModal((prev) => ({
+                                  ...prev,
+                                  pesoKg: preset.kg.toFixed(3),
+                                  pesoGramos: String(Math.round(preset.kg * 1000)),
+                                  montoDinero: String(Math.round(preset.kg * precio)),
+                                }));
+                              }}
+                            >
+                              {preset.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Ajustes rápidos */}
+                      <div className="d-flex gap-1 mt-2 align-items-center">
+                        <span className="small me-1" style={{ fontSize: "0.75rem", color: "var(--lp-text-secondary)" }}>Sumar:</span>
+                        {[50, 100, 250, 500].map((inc) => {
+                          const precio = Number(pesajeModal.producto?.precioVenta || pesajeModal.producto?.precioUnitario || 0);
+                          return (
+                            <button
+                              key={inc}
+                              type="button"
+                              className="btn btn-outline-secondary btn-sm py-0 px-2 fw-semibold"
+                              style={{ fontSize: "0.72rem" }}
+                              onClick={() => {
+                                const currentKg = parseFloat(pesajeModal.pesoKg) || 0;
+                                const newKg = Math.round((currentKg + inc / 1000) * 1000) / 1000;
+                                setPesajeModal((prev) => ({
+                                  ...prev,
+                                  pesoKg: newKg.toFixed(3),
+                                  pesoGramos: String(Math.round(newKg * 1000)),
+                                  montoDinero: String(Math.round(newKg * precio)),
+                                }));
+                              }}
+                            >
+                              +{inc}g
+                            </button>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          className="btn btn-outline-danger btn-sm py-0 px-2 ms-auto"
+                          style={{ fontSize: "0.72rem" }}
+                          onClick={() => {
+                            setPesajeModal((prev) => ({
+                              ...prev,
+                              pesoKg: "",
+                              pesoGramos: "",
+                              montoDinero: "0",
+                            }));
+                          }}
+                        >
+                          Limpiar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Vista 2: Entrada por Dinero */
+                  <div>
+                    <div className="mb-3">
+                      <label className="form-label small fw-bold mb-1" style={{ color: "var(--lp-text)" }}>
+                        Monto pedido por el cliente ($ CLP)
+                      </label>
+                      <div className="input-group input-group-lg">
+                        <span className="input-group-text bg-success text-white fw-bold">$</span>
+                        <input
+                          type="number"
+                          className="form-control fw-bold text-center border-success"
+                          placeholder="Ej: 1000"
+                          value={pesajeModal.montoDinero}
+                          autoFocus
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const dinero = parseInt(val, 10) || 0;
+                            const precio = Number(pesajeModal.producto?.precioVenta || pesajeModal.producto?.precioUnitario || 0);
+                            const kg = precio > 0 ? (dinero / precio) : 0;
+                            setPesajeModal((prev) => ({
+                              ...prev,
+                              montoDinero: val,
+                              pesoKg: kg > 0 ? kg.toFixed(3) : "",
+                              pesoGramos: kg > 0 ? String(Math.round(kg * 1000)) : "",
+                            }));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              confirmarPesaje(pesajeModal.pesoKg);
+                            }
+                          }}
+                        />
+                      </div>
+                      <small className="mt-1 d-block" style={{ color: "var(--lp-text-secondary)" }}>
+                        Escribe el dinero (ej. $1.000 o $1.500) y se calculará el peso exacto para la balanza.
+                      </small>
+                    </div>
+
+                    {/* Montos rápidos frecuentes */}
+                    <div className="mb-3">
+                      <label className="form-label small mb-1 fw-semibold" style={{ color: "var(--lp-text-secondary)" }}>
+                        Montos rápidos:
+                      </label>
+                      <div className="d-flex flex-wrap gap-1">
+                        {[500, 1000, 1500, 2000, 3000, 5000].map((monto) => {
+                          const precio = Number(pesajeModal.producto?.precioVenta || pesajeModal.producto?.precioUnitario || 0);
+                          const kg = precio > 0 ? (monto / precio) : 0;
+                          return (
+                            <button
+                              key={monto}
+                              type="button"
+                              className="btn btn-outline-success btn-sm rounded-pill fw-semibold py-1 px-3"
+                              style={{ fontSize: "0.8rem" }}
+                              onClick={() => {
+                                setPesajeModal((prev) => ({
+                                  ...prev,
+                                  montoDinero: String(monto),
+                                  pesoKg: kg.toFixed(3),
+                                  pesoGramos: String(Math.round(kg * 1000)),
+                                }));
+                              }}
+                            >
+                              ${monto.toLocaleString("es-CL")}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-3 border text-center" style={{ backgroundColor: "var(--lp-surface-alt)" }}>
+                      <span className="small d-block" style={{ color: "var(--lp-text-secondary)" }}>Equivalente a pesar:</span>
+                      <span className="fw-bold fs-5" style={{ color: "var(--lp-text)" }}>
+                        {pesajeModal.pesoKg || "0"} Kg ({pesajeModal.pesoGramos || "0"} gramos)
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Resumen de la fórmula en vivo */}
+                <div className="alert alert-success d-flex align-items-center justify-content-between py-2 px-3 mb-0 mt-3 border-0 bg-success bg-opacity-10 text-success rounded-3">
+                  <span className="small">
+                    <i className="bi bi-info-circle me-1"></i>
+                    <strong>{pesajeModal.pesoKg || "0"} Kg</strong> × {formatPrice(pesajeModal.producto?.precioVenta || pesajeModal.producto?.precioUnitario)}/Kg
+                  </span>
+                  <span className="fw-bold fs-6">
+                    = {formatPrice(Number(pesajeModal.montoDinero) || 0)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Botones de acción */}
+              <div className="modal-footer py-2 px-3 d-flex justify-content-between">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={() => setPesajeModal(null)}
+                >
+                  Cancelar (Esc)
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-success fw-bold px-4 shadow-sm"
+                  disabled={!pesajeModal.pesoKg || parseFloat(pesajeModal.pesoKg) <= 0}
+                  onClick={() => confirmarPesaje(pesajeModal.pesoKg)}
+                >
+                  <i className="bi bi-check2-circle me-1"></i>
+                  {pesajeModal.modoEdicion ? "Actualizar Peso (Enter)" : "Agregar a la Venta (Enter)"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

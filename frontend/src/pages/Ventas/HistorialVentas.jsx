@@ -448,16 +448,62 @@ function HistorialVentas() {
                           {((detalle.detalles && detalle.detalles.length > 0) ? detalle.detalles : (detalle.venta?.items || [])).map((item, idx) => (
                             <tr key={item._id || item.id || idx}>
                               <td>
-                                <div className="fw-semibold">
-                                  {item.producto?.nombre || item.nombre || "Producto"}
-                                </div>
-                                {(item.producto?.codigo || item.codigo) && (
-                                  <div className="text-muted small">
-                                    {item.producto?.codigo || item.codigo}
+                                <div className="d-flex align-items-center gap-2">
+                                  {(() => {
+                                    const imgUrl = item.imagen || item.imagenUrl || item.imagen_url || item.p_imagen_url || item.producto?.imagen || item.producto?.imagenUrl || item.producto?.imagen_url;
+                                    return (
+                                      <>
+                                        {imgUrl ? (
+                                          <img
+                                            src={imgUrl}
+                                            alt={item.producto?.nombre || item.nombre}
+                                            referrerPolicy="no-referrer"
+                                            className="rounded border flex-shrink-0 shadow-sm"
+                                            style={{
+                                              width: "40px",
+                                              height: "40px",
+                                              objectFit: "cover",
+                                              backgroundColor: "var(--lp-surface-alt, rgba(255,255,255,0.05))",
+                                              borderColor: "var(--lp-border, rgba(255,255,255,0.15))",
+                                            }}
+                                            onError={(e) => {
+                                              e.currentTarget.style.display = "none";
+                                              if (e.currentTarget.nextElementSibling) {
+                                                e.currentTarget.nextElementSibling.style.display = "flex";
+                                              }
+                                            }}
+                                          />
+                                        ) : null}
+                                        <div
+                                          className="rounded border text-secondary align-items-center justify-content-center flex-shrink-0 shadow-sm"
+                                          style={{
+                                            width: "40px",
+                                            height: "40px",
+                                            display: imgUrl ? "none" : "flex",
+                                            backgroundColor: "var(--lp-surface-alt, rgba(255,255,255,0.05))",
+                                            borderColor: "var(--lp-border, rgba(255,255,255,0.15))",
+                                          }}
+                                        >
+                                          <i className="bi bi-box-seam" style={{ fontSize: "1.1rem" }}></i>
+                                        </div>
+                                      </>
+                                    );
+                                  })()}
+                                  <div className="min-w-0">
+                                    <div className="fw-semibold text-truncate" style={{ maxWidth: "220px", color: "var(--lp-text, #ffffff)" }}>
+                                      {item.producto?.nombre || item.nombre || "Producto"}
+                                    </div>
+                                    {(item.producto?.codigo || item.codigo) && (
+                                      <div className="small" style={{ color: "var(--lp-text-muted, #94a3b8)" }}>
+                                        Cód: {item.producto?.codigo || item.codigo}
+                                      </div>
+                                    )}
                                   </div>
-                                )}
+                                </div>
                               </td>
-                              <td className="text-center">{item.cantidad}</td>
+                              <td className="text-center fw-semibold">
+                                {item.cantidad} {Number(item.cantidad) % 1 !== 0 ? "kg" : ""}
+                              </td>
                               <td className="text-end">
                                 {formatMoney(item.precioUnitario || item.precio)}
                               </td>

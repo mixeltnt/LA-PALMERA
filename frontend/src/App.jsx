@@ -2,20 +2,29 @@
  * ============================================================================
  * LA PALMERA POS — COMPONENTE PRINCIPAL (APP)
  * ============================================================================
- * Maneja la intro animada de 5 segundos de Palmi en el inicio,
- * el listener global de teclado (ESC / F11 para alternar Modo Ventana y Pantalla Completa)
- * y el proveedor de contexto de autenticación (AuthProvider).
+ * Maneja la intro animada del perrito salchicha en el inicio, el listener global
+ * de teclado (ESC / F11 para alternar Modo Ventana y Pantalla Completa),
+ * las ventanas modales arrastrables y el proveedor de autenticación (AuthProvider).
  */
 
 import { useState, useEffect } from "react";
 import { AuthProvider } from "./contexts/AuthContext";
 import AppRoutes from "./routes/AppRoutes";
 import IntroSalchicha from "./components/IntroSalchicha/IntroSalchicha";
-import { isTauriEnvironment, toggleFullscreen, setFullscreenMode } from "./utils/windowControls";
+import { toggleFullscreen, setFullscreenMode } from "./utils/windowControls";
+import { setupDraggableModals } from "./utils/setupDraggableModals";
 
 function App() {
   // Controla si la intro inicial ya concluyó o fue saltada
   const [introFinished, setIntroFinished] = useState(false);
+
+  // Inicializar el sistema global de ventanas modales arrastrables
+  useEffect(() => {
+    const cleanupDraggable = setupDraggableModals();
+    return () => {
+      if (cleanupDraggable) cleanupDraggable();
+    };
+  }, []);
 
   /**
    * Listener global de teclado:
@@ -34,7 +43,7 @@ function App() {
         await toggleFullscreen();
         setTimeout(() => { isHandling = false; }, 300);
       } else if (e.key === "Escape") {
-        const hasOpenModal = Boolean(document.querySelector(".modal.d-block, .modal.show, .lp-intro-overlay"));
+        const hasOpenModal = Boolean(document.querySelector(".modal.d-block, .modal.show, .intro-salchicha-overlay"));
         if (!hasOpenModal) {
           isHandling = true;
           await setFullscreenMode(false);
@@ -49,7 +58,7 @@ function App() {
 
   return (
     <>
-      {/* Intro animada inicial de 5 segundos */}
+      {/* Intro animada de bienvenida de La Palmera */}
       {!introFinished && (
         <IntroSalchicha onFinish={() => setIntroFinished(true)} />
       )}

@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import { Palmtree, Lock, User, AlertCircle, ArrowRight, ShieldCheck, Server } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { getBaseApiUrl, setBaseApiUrl } from "../services/api";
@@ -6,7 +6,7 @@ import { getBaseApiUrl, setBaseApiUrl } from "../services/api";
 export const LoginView: React.FC = () => {
   const { login } = useAuth();
   const [username, setUsername] = useState("yasna");
-  const [password, setPassword] = useState("Carlos1941");
+  const [password, setPassword] = useState("");
   const [apiUrl, setApiUrl] = useState(getBaseApiUrl());
   const [showConfigUrl, setShowConfigUrl] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,9 +29,10 @@ export const LoginView: React.FC = () => {
     }
   };
 
-  const handleQuickLogin = (u: string, p: string) => {
+  const handleSelectAccount = (u: string) => {
     setUsername(u);
-    setPassword(p);
+    setPassword("");
+    setError(null);
   };
 
   return (
@@ -41,7 +42,7 @@ export const LoginView: React.FC = () => {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: "24px",
+        padding: "16px",
         background: "radial-gradient(circle at 50% 30%, #0d281e 0%, #08100e 100%)",
       }}
     >
@@ -49,45 +50,46 @@ export const LoginView: React.FC = () => {
         className="glass-card"
         style={{
           width: "100%",
-          maxWidth: "440px",
-          padding: "40px 32px",
+          maxWidth: "420px",
+          padding: "32px 24px",
           display: "flex",
           flexDirection: "column",
-          gap: "24px",
+          gap: "20px",
         }}
       >
         {/* Logo & Title */}
         <div style={{ textAlign: "center" }}>
           <div
             style={{
-              width: "60px",
-              height: "60px",
+              width: "56px",
+              height: "56px",
               borderRadius: "16px",
               background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-              display: "flex",
+              display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              margin: "0 auto 16px auto",
               boxShadow: "0 8px 25px rgba(16, 185, 129, 0.4)",
+              marginBottom: "12px",
             }}
           >
-            <Palmtree size={36} color="#ffffff" />
+            <Palmtree size={32} color="#ffffff" />
           </div>
-          <h1 style={{ fontSize: "24px", fontWeight: "800", color: "#f8fafc", letterSpacing: "-0.5px" }}>
-            La Palmera POS
+          <h1 style={{ fontSize: "22px", fontWeight: "800", color: "#f8fafc", letterSpacing: "-0.5px" }}>
+            La Palmera
           </h1>
-          <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginTop: "4px" }}>
-            Panel Web Administrativo • Versión 23
+          <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "3px" }}>
+            Panel Web Administrativo • v32 Cloud
           </p>
         </div>
 
+        {/* Error Alert */}
         {error && (
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "10px",
-              padding: "12px 16px",
+              gap: "8px",
+              padding: "12px 14px",
               borderRadius: "var(--radius-md)",
               background: "rgba(244, 63, 94, 0.15)",
               border: "1px solid rgba(244, 63, 94, 0.3)",
@@ -95,25 +97,26 @@ export const LoginView: React.FC = () => {
               fontSize: "13px",
             }}
           >
-            <AlertCircle size={18} style={{ flexShrink: 0 }} />
+            <AlertCircle size={16} style={{ flexShrink: 0 }} />
             <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        {/* Form */}
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "6px" }}>
-              Usuario
+              Usuario Administrador / Encargada
             </label>
             <div style={{ position: "relative" }}>
-              <User size={18} color="var(--text-muted)" style={{ position: "absolute", left: "14px", top: "12px" }} />
+              <User size={16} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "13px" }} />
               <input
                 type="text"
                 className="form-control"
-                style={{ paddingLeft: "42px" }}
+                style={{ paddingLeft: "36px" }}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Ej. yasna, karla"
+                placeholder="Nombre de usuario"
                 required
               />
             </div>
@@ -124,87 +127,98 @@ export const LoginView: React.FC = () => {
               Contraseña
             </label>
             <div style={{ position: "relative" }}>
-              <Lock size={18} color="var(--text-muted)" style={{ position: "absolute", left: "14px", top: "12px" }} />
+              <Lock size={16} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "13px" }} />
               <input
                 type="password"
                 className="form-control"
-                style={{ paddingLeft: "42px" }}
+                style={{ paddingLeft: "36px" }}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="Contraseña"
                 required
               />
             </div>
           </div>
 
+          {showConfigUrl && (
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "6px" }}>
+                URL del Servidor API
+              </label>
+              <div style={{ position: "relative" }}>
+                <Server size={16} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "13px" }} />
+                <input
+                  type="text"
+                  className="form-control"
+                  style={{ paddingLeft: "36px", fontSize: "12px" }}
+                  value={apiUrl}
+                  onChange={(e) => setApiUrl(e.target.value)}
+                  placeholder="https://lapalmera-pos-api.onrender.com/api"
+                />
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={loading}
             className="btn btn-primary"
-            style={{ width: "100%", padding: "12px", marginTop: "8px" }}
+            style={{ width: "100%", marginTop: "6px", fontSize: "15px" }}
           >
-            {loading ? "Verificando..." : "Ingresar al Panel"}
-            <ArrowRight size={18} />
+            {loading ? (
+              <span>Iniciando sesión...</span>
+            ) : (
+              <>
+                <span>Ingresar al Panel</span>
+                <ArrowRight size={16} />
+              </>
+            )}
           </button>
         </form>
 
-        {/* Quick presets for testing */}
-        <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: "16px" }}>
-          <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "8px", textAlign: "center" }}>
-            Acceso Rápido de Prueba:
+        {/* Quick Access Badges for Admin Accounts */}
+        <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: "14px", marginTop: "2px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--text-muted)", marginBottom: "8px" }}>
+            <ShieldCheck size={14} color="#34d399" />
+            <span>Accesos rápidos sugeridos:</span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
             <button
               type="button"
+              onClick={() => handleSelectAccount("yasna")}
               className="btn btn-secondary btn-sm"
-              onClick={() => handleQuickLogin("yasna", "Carlos1941")}
+              style={{ flex: 1 }}
             >
-              <ShieldCheck size={14} color="#10b981" />
               Yasna (Admin)
             </button>
             <button
               type="button"
+              onClick={() => handleSelectAccount("karla")}
               className="btn btn-secondary btn-sm"
-              onClick={() => handleQuickLogin("karla", "Karla2004")}
+              style={{ flex: 1 }}
             >
-              <ShieldCheck size={14} color="#f59e0b" />
-              Karla (Encargada)
+              Karla (Supervisora)
             </button>
           </div>
         </div>
 
-        {/* API Server toggle */}
+        {/* Toggle Server URL */}
         <div style={{ textAlign: "center" }}>
           <button
             type="button"
             onClick={() => setShowConfigUrl(!showConfigUrl)}
             style={{
-              background: "none",
+              background: "transparent",
               border: "none",
               color: "var(--text-muted)",
-              fontSize: "12px",
+              fontSize: "11px",
               cursor: "pointer",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
+              textDecoration: "underline",
             }}
           >
-            <Server size={14} />
-            {showConfigUrl ? "Ocultar URL de Servidor" : "Configurar URL de Servidor API"}
+            {showConfigUrl ? "Ocultar configuración de servidor" : "Configurar URL de servidor API"}
           </button>
-
-          {showConfigUrl && (
-            <div style={{ marginTop: "12px", textAlign: "left" }}>
-              <input
-                type="text"
-                className="form-control"
-                style={{ fontSize: "12px" }}
-                value={apiUrl}
-                onChange={(e) => setApiUrl(e.target.value)}
-                placeholder="http://localhost:4000/api o https://tu-render.onrender.com/api"
-              />
-            </div>
-          )}
         </div>
       </div>
     </div>

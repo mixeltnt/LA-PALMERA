@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "LaPalmera",
-  "version": "23.0.0",
+  "version": "32.0.0",
   "identifier": "cl.lapalmera.pos",
   "build": {
     "frontendDist": "../dist",
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "La Palmera - Sistema POS v23",
+        "title": "La Palmera - Sistema POS v32",
         "width": 1280,
         "height": 800,
         "minWidth": 1024,
@@ -31,6 +31,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "msi"],
+    "resources": ["WebView2Loader.dll"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -42,6 +43,9 @@
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
       "timestampUrl": "",
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "headerImage": null,

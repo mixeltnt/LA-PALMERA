@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Award, Filter } from "lucide-react";
 import { adminApi } from "../services/api";
 
@@ -43,18 +43,10 @@ export const ReportesView: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: "28px 32px", display: "flex", flexDirection: "column", gap: "24px" }}>
+    <div className="page-container">
       {/* Date Filter Bar */}
-      <div className="glass-card" style={{ padding: "20px 24px" }}>
-        <form
-          onSubmit={handleApplyFilter}
-          style={{
-            display: "flex",
-            alignItems: "flex-end",
-            gap: "16px",
-            flexWrap: "wrap",
-          }}
-        >
+      <div className="glass-card" style={{ padding: "18px 20px" }}>
+        <form onSubmit={handleApplyFilter} className="filter-grid">
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "6px" }}>
               Fecha Desde
@@ -79,7 +71,7 @@ export const ReportesView: React.FC = () => {
             />
           </div>
 
-          <button type="submit" className="btn btn-primary" style={{ height: "42px" }}>
+          <button type="submit" className="btn btn-primary" style={{ minWidth: "140px" }}>
             <Filter size={16} />
             <span>Generar Reporte</span>
           </button>
@@ -87,54 +79,68 @@ export const ReportesView: React.FC = () => {
       </div>
 
       {/* KPI Cards for Selected Period */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: "20px",
-        }}
-      >
-        <div className="glass-card" style={{ padding: "20px 24px" }}>
+      <div className="kpi-grid">
+        <div className="glass-card" style={{ padding: "20px 22px" }}>
           <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "8px" }}>
             Ingresos Totales en Período
           </div>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#34d399" }}>
-            {formatMoney(periodoData?.total_monto || periodoData?.monto_total)}
+          <div style={{ fontSize: "26px", fontWeight: "800", color: "#34d399", letterSpacing: "-0.5px" }}>
+            {formatMoney(periodoData?.totalMonto ?? periodoData?.total_monto ?? 0)}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "6px" }}>
+            Ventas brutas recaudadas
           </div>
         </div>
 
-        <div className="glass-card" style={{ padding: "20px 24px" }}>
+        <div className="glass-card" style={{ padding: "20px 22px" }}>
           <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "8px" }}>
-            Cantidad de Transacciones
+            Boletas Emitidas
           </div>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#f8fafc" }}>
-            {periodoData?.total_ventas || periodoData?.cantidad_ventas || 0}
+          <div style={{ fontSize: "26px", fontWeight: "800", color: "#f8fafc", letterSpacing: "-0.5px" }}>
+            {periodoData?.totalVentas ?? periodoData?.total_transacciones ?? 0}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "6px" }}>
+            Transacciones completadas
           </div>
         </div>
 
-        <div className="glass-card" style={{ padding: "20px 24px" }}>
+        <div className="glass-card" style={{ padding: "20px 22px" }}>
           <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "8px" }}>
-            Ticket Promedio
+            Subtotal Neto Estimado
           </div>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#38bdf8" }}>
+          <div style={{ fontSize: "26px", fontWeight: "800", color: "#fbbf24", letterSpacing: "-0.5px" }}>
             {formatMoney(
-              (periodoData?.total_ventas || periodoData?.cantidad_ventas) > 0
-                ? Math.round(
-                    (periodoData?.total_monto || periodoData?.monto_total || 0) /
-                      (periodoData?.total_ventas || periodoData?.cantidad_ventas)
-                  )
-                : 0
+              periodoData?.totalSubtotal ??
+              Math.round((Number(periodoData?.totalMonto ?? periodoData?.total_monto ?? 0)) / 1.19)
             )}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "6px" }}>
+            Sin IVA acumulado
+          </div>
+        </div>
+
+        <div className="glass-card" style={{ padding: "20px 22px" }}>
+          <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "8px" }}>
+            IVA Débito Fiscal (19%)
+          </div>
+          <div style={{ fontSize: "26px", fontWeight: "800", color: "#38bdf8", letterSpacing: "-0.5px" }}>
+            {formatMoney(
+              periodoData?.totalIva ??
+              Math.round((Number(periodoData?.totalMonto ?? periodoData?.total_monto ?? 0)) - ((Number(periodoData?.totalMonto ?? periodoData?.total_monto ?? 0)) / 1.19))
+            )}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "6px" }}>
+            Impuesto al valor agregado
           </div>
         </div>
       </div>
 
-      {/* Top 10 Best Selling Products */}
-      <div className="glass-card" style={{ padding: "24px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "18px" }}>
-          <Award size={22} color="#f59e0b" />
-          <h3 style={{ fontSize: "17px", fontWeight: "700", color: "#f8fafc" }}>
-            Ranking: Top 10 Productos Más Vendidos
+      {/* Top 10 Most Sold Products Table */}
+      <div className="glass-card" style={{ padding: "20px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
+          <Award size={20} color="#f59e0b" />
+          <h3 style={{ fontSize: "16px", fontWeight: "700", color: "#f8fafc" }}>
+            Top 10 Productos Más Vendidos en el Período
           </h3>
         </div>
 
@@ -142,67 +148,64 @@ export const ReportesView: React.FC = () => {
           <table className="table">
             <thead>
               <tr>
-                <th style={{ width: "60px", textAlign: "center" }}>Rank</th>
-                <th>Producto</th>
+                <th>#</th>
+                <th>Nombre del Producto</th>
                 <th style={{ textAlign: "center" }}>Unidades Vendidas</th>
-                <th style={{ textAlign: "right" }}>Ingresos Totales</th>
+                <th style={{ textAlign: "right" }}>Total Recaudado</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td colSpan={4} style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
-                    Calculando ranking desde PostgreSQL Neon...
+                    Calculando ranking de productos...
                   </td>
                 </tr>
               ) : topProductos.length === 0 ? (
                 <tr>
                   <td colSpan={4} style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
-                    No hay suficientes datos de ventas para el período seleccionado.
+                    No hay ventas registradas para el rango de fechas seleccionado.
                   </td>
                 </tr>
               ) : (
-                topProductos.map((p, idx) => (
-                  <tr key={idx}>
-                    <td style={{ textAlign: "center" }}>
+                topProductos.map((p, index) => (
+                  <tr key={index}>
+                    <td>
                       <span
                         style={{
-                          width: "26px",
-                          height: "26px",
+                          width: "24px",
+                          height: "24px",
                           borderRadius: "50%",
+                          background: index < 3 ? "rgba(245, 158, 11, 0.2)" : "rgba(255, 255, 255, 0.06)",
+                          color: index < 3 ? "#fbbf24" : "var(--text-secondary)",
                           display: "inline-flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          fontWeight: "800",
+                          fontWeight: "700",
                           fontSize: "12px",
-                          background:
-                            idx === 0
-                              ? "rgba(245, 158, 11, 0.25)"
-                              : idx === 1
-                              ? "rgba(148, 163, 184, 0.2)"
-                              : idx === 2
-                              ? "rgba(180, 83, 9, 0.2)"
-                              : "rgba(255, 255, 255, 0.05)",
-                          color:
-                            idx === 0
-                              ? "#fbbf24"
-                              : idx === 1
-                              ? "#cbd5e1"
-                              : idx === 2
-                              ? "#f59e0b"
-                              : "var(--text-secondary)",
                         }}
                       >
-                        #{idx + 1}
+                        {index + 1}
                       </span>
                     </td>
                     <td style={{ fontWeight: "600", color: "#f8fafc" }}>
-                      {p.nombre || p.producto_nombre}
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        {p.imagen_url ? (
+                          <img
+                            src={p.imagen_url}
+                            alt=""
+                            referrerPolicy="no-referrer"
+                            style={{ width: "32px", height: "32px", borderRadius: "6px", objectFit: "cover", flexShrink: 0, border: "1px solid var(--border-subtle)" }}
+                            onError={(e: any) => { e.currentTarget.style.display = 'none'; }}
+                          />
+                        ) : null}
+                        <span>{p.nombre || p.producto_nombre}</span>
+                      </div>
                     </td>
                     <td style={{ textAlign: "center", fontWeight: "700", color: "#34d399" }}>
-                      {p.total_cantidad || p.cantidad_vendida}
+                      {p.total_vendido || p.cantidad} u.
                     </td>
-                    <td style={{ textAlign: "right", fontWeight: "700", color: "#f8fafc" }}>
+                    <td style={{ textAlign: "right", fontWeight: "700", color: "#f8fafc", whiteSpace: "nowrap" }}>
                       {formatMoney(p.total_recaudado || p.monto_total)}
                     </td>
                   </tr>

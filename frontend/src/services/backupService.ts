@@ -33,8 +33,7 @@ export class BackupService {
   }
 
   /**
-   * Genera un respaldo completo de la base de datos de ventas de La Palmera POS v12
-   * y lo guarda en la carpeta del Escritorio para que Karla / el usuario pueda subirlo a su nube.
+   * Genera un respaldo completo de la base de datos de La Palmera POS
    */
   public async createBackup(tipo: 'manual' | 'automatico' | 'previo_actualizacion' = 'manual', descripcion?: string): Promise<BackupRecord> {
     const config = storageService.getConfig();
@@ -87,7 +86,7 @@ export class BackupService {
           await mkdir(desktopDir, { recursive: true }).catch(() => {});
           
           const infoText = `================================================================================
-LA PALMERA POS v22 — GUÍA DE RESPALDOS PARA SUBIR A LA NUBE
+LA PALMERA POS v32 — GUÍA DE RESPALDOS PARA SUBIR A LA NUBE
 ================================================================================
 
 Hola:

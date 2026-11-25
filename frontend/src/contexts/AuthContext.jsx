@@ -5,7 +5,6 @@ const AuthContext = createContext();
 
 function getStoredUser() {
   if (typeof window === "undefined") return null;
-  // Limpiar cualquier residuo de localStorage para exigir contraseña siempre
   localStorage.removeItem("lapalmera-user");
   const saved = sessionStorage.getItem("lapalmera-user");
   return saved ? JSON.parse(saved) : null;
@@ -23,7 +22,6 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(false);
 
   const storeSession = useCallback((userData, tokenStr) => {
-    // Usar exclusivamente sessionStorage: al cerrar la app se cierra la sesión
     sessionStorage.setItem("lapalmera-token", tokenStr);
     sessionStorage.setItem("lapalmera-user", JSON.stringify(userData));
     localStorage.removeItem("lapalmera-token");
@@ -68,9 +66,10 @@ export function AuthProvider({ children }) {
       loading,
       isAuthenticated: Boolean(user && token),
       login,
+      authenticate: storeSession,
       logout,
     }),
-    [user, token, loading, login, logout]
+    [user, token, loading, login, storeSession, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -71,7 +71,19 @@ export const saleRepository = {
     if (!rows || rows.length === 0) return null;
     const r = rows[0];
 
-    const items = await db.select<any>('SELECT * FROM venta_items WHERE venta_id = ? ORDER BY id ASC', [r.id]);
+    const items = await db.select<any>(
+      `SELECT vi.*, 
+              COALESCE(p.imagen_url, p2.imagen_url, p3.imagen_url) as p_imagen_url,
+              COALESCE(p.codigo, p2.codigo, vi.codigo) as p_codigo,
+              COALESCE(p.nombre, p2.nombre, vi.nombre) as p_nombre
+       FROM venta_items vi
+       LEFT JOIN productos p ON vi.producto_id = p.id
+       LEFT JOIN productos p2 ON (vi.codigo IS NOT NULL AND vi.codigo != '' AND vi.codigo = p2.codigo)
+       LEFT JOIN productos p3 ON (vi.nombre IS NOT NULL AND vi.nombre != '' AND LOWER(vi.nombre) = LOWER(p3.nombre))
+       WHERE vi.venta_id = ? 
+       ORDER BY vi.id ASC`,
+      [r.id]
+    );
     const pagos = await db.select<any>('SELECT * FROM venta_pagos WHERE venta_id = ? ORDER BY id ASC', [r.id]);
 
     const resolvedClienteNombre = r.c_nombre || r.cliente_nombre || (r.cliente_id ? 'Cliente' : null);
@@ -84,11 +96,11 @@ export const saleRepository = {
       numeroBoleta: r.numero_boleta || `BOL-${r.folio || r.id}`,
       fecha: r.fecha || new Date().toISOString(),
       cajeroId: r.cajero_id,
-      cajeroNombre: r.cajero_nombre || 'Yasna',
+      cajeroNombre: r.cajero_nombre || 'Cajero',
       usuario: {
         id: r.cajero_id,
-        nombre: r.cajero_nombre || 'Yasna',
-        username: r.cajero_nombre || 'yasna',
+        nombre: r.cajero_nombre || 'Cajero',
+        username: r.cajero_nombre || 'cajero',
       },
       cajaSesionId: r.caja_sesion_id,
       clienteId: r.cliente_id,
@@ -111,18 +123,31 @@ export const saleRepository = {
       motivoAnulacion: r.motivo_anulacion,
       notas: r.notas,
       sincronizado: Boolean(r.sincronizado),
-      items: items.map((i: any) => ({
-        id: i.id,
-        ventaId: i.venta_id,
-        productoId: i.producto_id,
-        codigo: i.codigo,
-        nombre: i.nombre,
-        cantidad: Number(i.cantidad ?? 1),
-        precioUnitario: Number(i.precio_unitario ?? 0),
-        costoUnitario: Number(i.costo_unitario ?? 0),
-        descuento: Number(i.descuento ?? 0),
-        subtotal: Number(i.subtotal ?? 0),
-      })),
+      items: items.map((i: any) => {
+        const img = i.p_imagen_url || null;
+        return {
+          id: i.id,
+          ventaId: i.venta_id,
+          productoId: i.producto_id,
+          codigo: i.codigo || i.p_codigo,
+          nombre: i.nombre || i.p_nombre,
+          cantidad: Number(i.cantidad ?? 1),
+          precioUnitario: Number(i.precio_unitario ?? 0),
+          costoUnitario: Number(i.costo_unitario ?? 0),
+          descuento: Number(i.descuento ?? 0),
+          subtotal: Number(i.subtotal ?? 0),
+          imagen: img,
+          imagenUrl: img,
+          producto: {
+            id: i.producto_id,
+            _id: String(i.producto_id),
+            codigo: i.codigo || i.p_codigo,
+            nombre: i.nombre || i.p_nombre,
+            imagen: img,
+            imagenUrl: img,
+          },
+        };
+      }),
       pagos: pagos.map((p: any) => ({
         id: p.id,
         metodo: p.metodo,
@@ -196,11 +221,11 @@ export const saleRepository = {
         numeroBoleta: r.numero_boleta || `BOL-${r.folio || r.id}`,
         fecha: r.fecha || getLocalDateISO(),
         cajeroId: r.cajero_id,
-        cajeroNombre: r.cajero_nombre || 'Yasna',
+        cajeroNombre: r.cajero_nombre || 'Cajero',
         usuario: {
           id: r.cajero_id,
-          nombre: r.cajero_nombre || 'Yasna',
-          username: r.cajero_nombre || 'yasna',
+          nombre: r.cajero_nombre || 'Cajero',
+          username: r.cajero_nombre || 'cajero',
         },
         cajaSesionId: r.caja_sesion_id,
         clienteId: r.cliente_id,
@@ -269,6 +294,17 @@ export const saleRepository = {
     const metodoPrincipal = (saleData.metodoPagoPrincipal || 'efectivo').toLowerCase();
     const fechaVenta = saleData.fecha && !saleData.fecha.endsWith('Z') ? saleData.fecha : getLocalDateISO();
 
+    // Resolver automáticamente la sesión de caja activa si no viene explícita en saleData
+    let resolvedCajaSesionId: number | null = saleData.cajaSesionId ? Number(saleData.cajaSesionId) : null;
+    if (!resolvedCajaSesionId) {
+      const openSessions = await db.select<any>(
+        "SELECT id FROM caja_sesiones WHERE estado = 'abierta' ORDER BY id DESC LIMIT 1"
+      );
+      if (openSessions && openSessions.length > 0 && openSessions[0]?.id) {
+        resolvedCajaSesionId = Number(openSessions[0].id);
+      }
+    }
+
     // 2. Insertar venta en SQLite
     const res = await db.execute(
       `INSERT INTO ventas (
@@ -283,7 +319,7 @@ export const saleRepository = {
         fechaVenta,
         Number(saleData.cajeroId) || 1,
         saleData.cajeroNombre || 'Cajero',
-        saleData.cajaSesionId ? Number(saleData.cajaSesionId) : null,
+        resolvedCajaSesionId,
         clienteId,
         clienteNombre,
         Number(saleData.subtotal ?? saleData.total ?? 0),
@@ -328,6 +364,14 @@ export const saleRepository = {
     // 3. Insertar ítems y descontar stock
     for (const item of (saleData.items || [])) {
       const prodId = Number(item.productoId);
+      const safeProdId = prodId > 0 ? prodId : null;
+      let costoUnit = Number(item.costoUnitario) || 0;
+      if (costoUnit === 0 && safeProdId) {
+        const pCostRows = await db.select<any>('SELECT precio_costo FROM productos WHERE id = ? LIMIT 1', [safeProdId]);
+        if (pCostRows && pCostRows.length > 0) {
+          costoUnit = Number(pCostRows[0].precio_costo) || 0;
+        }
+      }
       await db.execute(
         `INSERT INTO venta_items (
           venta_id, producto_id, codigo, nombre, cantidad,
@@ -335,22 +379,22 @@ export const saleRepository = {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           ventaId,
-          prodId || 1,
+          safeProdId,
           item.codigo || '',
           item.nombre || 'Producto',
-          Number(item.cantidad) || 1,
+          Number(item.cantidad) > 0 ? Number(item.cantidad) : 1,
           Number(item.precioUnitario) || 0,
-          Number(item.costoUnitario) || 0,
+          costoUnit,
           Number(item.descuento) || 0,
-          Number(item.subtotal) || ((Number(item.cantidad) || 1) * (Number(item.precioUnitario) || 0)),
+          Math.round(Number(item.subtotal) || ((Number(item.cantidad) > 0 ? Number(item.cantidad) : 1) * (Number(item.precioUnitario) || 0))),
         ]
       );
 
       // Descontar inventario
-      if (prodId) {
+      if (safeProdId) {
         await db.execute(
-          'UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?',
-          [Number(item.cantidad) || 1, prodId]
+          'UPDATE productos SET stock_actual = MAX(0, ROUND(stock_actual - ?, 3)) WHERE id = ?',
+          [Number(item.cantidad) > 0 ? Number(item.cantidad) : 1, safeProdId]
         );
 
         // Registrar movimiento kardex
@@ -360,17 +404,17 @@ export const saleRepository = {
             stock_anterior, stock_nuevo, motivo, referencia_id, usuario_id
           ) VALUES (
             ?, ?, 'salida_venta', ?,
-            (SELECT stock_actual + ? FROM productos WHERE id = ?),
+            (SELECT ROUND(stock_actual + ?, 3) FROM productos WHERE id = ?),
             (SELECT stock_actual FROM productos WHERE id = ?),
             'Venta #' || ?, ?, ?
           )`,
           [
-            prodId,
+            safeProdId,
             item.nombre,
             Number(item.cantidad) || 1,
             Number(item.cantidad) || 1,
-            prodId,
-            prodId,
+            safeProdId,
+            safeProdId,
             Number(folio),
             ventaId,
             Number(saleData.cajeroId) || 1,
@@ -396,20 +440,21 @@ export const saleRepository = {
       );
     }
 
-    // 5. Actualizar totales de la sesión de caja si está activa
-    if (saleData.cajaSesionId) {
-      const field = saleData.metodoPagoPrincipal === 'efectivo' 
-        ? 'total_ventas_efectivo'
-        : saleData.metodoPagoPrincipal === 'debito'
-        ? 'total_ventas_debito'
-        : saleData.metodoPagoPrincipal === 'credito'
-        ? 'total_ventas_credito'
-        : 'total_ventas_transferencia';
-
-      await db.execute(
-        `UPDATE caja_sesiones SET ${field} = ${field} + ? WHERE id = ?`,
-        [Number(saleData.total ?? 0), Number(saleData.cajaSesionId)]
-      ).catch(() => {});
+    // 5. Actualizar totales de la sesión de caja si está activa (excluyendo ventas fiadas que no ingresan dinero a caja)
+    if (resolvedCajaSesionId && metodoPrincipal !== 'fiado') {
+      const fieldMap: Record<string, string> = {
+        efectivo: 'total_ventas_efectivo',
+        debito: 'total_ventas_debito',
+        credito: 'total_ventas_credito',
+        transferencia: 'total_ventas_transferencia',
+      };
+      const field = fieldMap[metodoPrincipal];
+      if (field) {
+        await db.execute(
+          `UPDATE caja_sesiones SET ${field} = ${field} + ? WHERE id = ?`,
+          [Number(saleData.total ?? 0), resolvedCajaSesionId]
+        ).catch(() => {});
+      }
     }
 
     const createdSale = await this.getById(ventaId);
@@ -590,7 +635,7 @@ export const saleRepository = {
         const qty = Number(item.cantidad) || 0;
         if (prodId && qty > 0) {
           await db.execute(
-            'UPDATE productos SET stock_actual = stock_actual + ? WHERE id = ?',
+            'UPDATE productos SET stock_actual = ROUND(stock_actual + ?, 3) WHERE id = ?',
             [qty, prodId]
           );
 
@@ -601,7 +646,7 @@ export const saleRepository = {
               stock_anterior, stock_nuevo, motivo, referencia_id, usuario_id
             ) VALUES (
               ?, ?, 'entrada_anulacion', ?,
-              (SELECT stock_actual - ? FROM productos WHERE id = ?),
+              (SELECT ROUND(stock_actual - ?, 3) FROM productos WHERE id = ?),
               (SELECT stock_actual FROM productos WHERE id = ?),
               'Anulación de Venta #' || ?, ?, ?
             )`,
@@ -620,12 +665,17 @@ export const saleRepository = {
         }
       }
 
-      // 3. Si era venta fiada y tenía cliente asociado, devolver saldo deudor al cliente y registrar movimiento
-      if (String(sale.metodoPagoPrincipal || '').toLowerCase() === 'fiado' && sale.clienteId) {
+      // 3. Si era venta fiada (o incluía pago fiado) y tenía cliente asociado, devolver saldo deudor al cliente y registrar movimiento
+      const metodoAnular = String(sale.metodoPagoPrincipal || '').toLowerCase();
+      const tienePagoFiado = metodoAnular === 'fiado' || (sale.pagos || []).some(p => String(p.metodo).toLowerCase() === 'fiado');
+      if (tienePagoFiado && sale.clienteId) {
         const cId = Number(sale.clienteId);
+        const montoFiado = (sale.pagos || [])
+          .filter(p => String(p.metodo).toLowerCase() === 'fiado')
+          .reduce((s, p) => s + Number(p.monto), 0) || Number(sale.total ?? 0);
         await db.execute(
           'UPDATE clientes SET saldo_deudor = MAX(0, saldo_deudor - ?) WHERE id = ?',
-          [Number(sale.total ?? 0), cId]
+          [montoFiado, cId]
         );
         const custRows = await db.select<any>('SELECT saldo_deudor FROM clientes WHERE id = ?', [cId]);
         const newSaldo = custRows[0]?.saldo_deudor ?? 0;
@@ -635,7 +685,7 @@ export const saleRepository = {
           ) VALUES (?, 'ANULACION_VENTA', ?, ?, ?, ?, ?, ?)`,
           [
             cId,
-            Number(sale.total ?? 0),
+            montoFiado,
             Number(newSaldo),
             `Anulación de Venta #${sale.folio || ventaId}`,
             ventaId,
@@ -645,20 +695,21 @@ export const saleRepository = {
         ).catch((e) => console.warn('[saleRepository] Error registrando reversión cliente_movimientos:', e));
       }
 
-      // 4. Si hay sesión de caja activa vinculada, restar del total de la sesión
-      if (sale.cajaSesionId) {
-        const field = sale.metodoPagoPrincipal === 'efectivo' 
-          ? 'total_ventas_efectivo'
-          : sale.metodoPagoPrincipal === 'debito'
-          ? 'total_ventas_debito'
-          : sale.metodoPagoPrincipal === 'credito'
-          ? 'total_ventas_credito'
-          : 'total_ventas_transferencia';
-
-        await db.execute(
-          `UPDATE caja_sesiones SET ${field} = MAX(0, ${field} - ?) WHERE id = ?`,
-          [Number(sale.total ?? 0), Number(sale.cajaSesionId)]
-        ).catch(() => {});
+      // 4. Si hay sesión de caja activa vinculada (y no fue fiado), restar del total de la sesión
+      if (sale.cajaSesionId && metodoAnular !== 'fiado') {
+        const fieldMap: Record<string, string> = {
+          efectivo: 'total_ventas_efectivo',
+          debito: 'total_ventas_debito',
+          credito: 'total_ventas_credito',
+          transferencia: 'total_ventas_transferencia',
+        };
+        const field = fieldMap[metodoAnular];
+        if (field) {
+          await db.execute(
+            `UPDATE caja_sesiones SET ${field} = MAX(0, ${field} - ?) WHERE id = ?`,
+            [Number(sale.total ?? 0), Number(sale.cajaSesionId)]
+          ).catch(() => {});
+        }
       }
 
       await db.execute('COMMIT');

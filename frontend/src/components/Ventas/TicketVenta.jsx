@@ -72,7 +72,7 @@ function TicketVenta({
     <div className="ticket-print-area">
       <div className="ticket-header">
         <div className="ticket-nombre">LA PALMERA</div>
-        <div className="ticket-subtitulo">TICKET DE VENTA</div>
+        <div className="ticket-subtitulo">MINIMARKET • COMPROBANTE DE VENTA</div>
       </div>
 
       <div className="ticket-cuerpo">
@@ -117,7 +117,11 @@ function TicketVenta({
                     </div>
                   )}
                 </td>
-                <td className="ticket-tabla-cant">{item.cantidad}</td>
+                <td className="ticket-tabla-cant">
+                  {Number(item.cantidad) % 1 !== 0
+                    ? `${Number(item.cantidad).toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 3 })} kg`
+                    : item.cantidad}
+                </td>
                 <td className="ticket-tabla-monto">
                   {formatMoney(item.precioUnitario)}
                 </td>
@@ -198,7 +202,12 @@ function TicketVenta({
         )}
       </div>
 
-      <div className="ticket-footer">Gracias por su compra</div>
+      <div className="ticket-footer">
+        <div>Gracias por su compra</div>
+        <div style={{ fontSize: "0.68rem", marginTop: 4 }}>
+          Minimarket La Palmera • Sistema POS v32
+        </div>
+      </div>
     </div>,
     document.body,
   );

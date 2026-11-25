@@ -77,12 +77,17 @@ export const productService = {
     const img = data.imagenUrl || data.imagen || null;
     const catId = data.categoriaId ?? data.categoria ?? null;
     const provId = data.proveedorId ?? data.proveedorPrincipal ?? null;
+    const u = String(data.unidadMedida || data.unidad_medida || "").trim().toLowerCase();
+    const isWeight = ["kg", "kilogramo", "kilo", "kilos", "gramo", "gramos", "granel", "gr", "g"].includes(u);
+    const permiteDecimales = Boolean(data.permiteDecimales || data.permite_decimales || isWeight);
 
     const created = await productRepository.create({
       ...data,
       categoriaId: catId,
       proveedorId: provId,
       imagenUrl: img,
+      unidadMedida: data.unidadMedida || (isWeight ? "Kg" : "Unidad"),
+      permiteDecimales,
       precioCosto: Number(data.precioCompra ?? data.precioCosto) || 0,
       precioVenta: Number(data.precioVenta) || 0,
       stockActual: Number(data.stockActual ?? data.stock) || 0,
@@ -92,13 +97,13 @@ export const productService = {
     return {
       producto: {
         ...created,
-        _id: String(created.id),
-        precioCompra: created.precioCosto,
-        precioVenta: created.precioVenta,
-        imagen: created.imagenUrl || "",
-        imagenUrl: created.imagenUrl || "",
-        categoria: created.categoriaNombre ? { _id: String(created.categoriaId), id: created.categoriaId, nombre: created.categoriaNombre } : null,
-        proveedorPrincipal: created.proveedorNombre ? { _id: String(created.proveedorId), id: created.proveedorId, nombre: created.proveedorNombre } : null,
+        _id: String(created?.id ?? ""),
+        precioCompra: created?.precioCosto ?? 0,
+        precioVenta: created?.precioVenta ?? 0,
+        imagen: created?.imagenUrl || "",
+        imagenUrl: created?.imagenUrl || "",
+        categoria: created?.categoriaNombre ? { _id: String(created.categoriaId), id: created.categoriaId, nombre: created.categoriaNombre } : null,
+        proveedorPrincipal: created?.proveedorNombre ? { _id: String(created.proveedorId), id: created.proveedorId, nombre: created.proveedorNombre } : null,
       },
       mensaje: "Producto guardado localmente",
     };

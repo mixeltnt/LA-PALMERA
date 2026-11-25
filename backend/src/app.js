@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -17,6 +18,8 @@ import reportesRoutes from "./routes/reportesRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 
 const app = express();
+// Confiar en el primer reverse proxy (Render / Cloudflare) para X-Forwarded-For y rate-limit
+app.set("trust proxy", 1);
 
 const originsDesdeEnv = (process.env.CORS_ORIGINS || "")
   .split(",")
@@ -24,14 +27,13 @@ const originsDesdeEnv = (process.env.CORS_ORIGINS || "")
   .filter(Boolean);
 
 const originsPermitidos = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "http://localhost:5174",
-  "http://127.0.0.1:5174",
-  "http://localhost:4000",
-  "http://127.0.0.1:4000",
   "http://tauri.localhost",
+  "https://tauri.localhost",
   "tauri://localhost",
+  "capacitor://localhost",
+  "https://localhost",
+  "https://lapalmera-pos-api.onrender.com",
+  ...(process.env.RENDER_EXTERNAL_URL ? [process.env.RENDER_EXTERNAL_URL.replace(/\/+$/, "")] : []),
   ...originsDesdeEnv,
 ];
 
@@ -42,19 +44,34 @@ app.use(
         !origin ||
         originsPermitidos.includes(origin) ||
         origin.startsWith("tauri://") ||
+        origin.startsWith("capacitor://") ||
         origin.startsWith("http://tauri.localhost") ||
-        origin.startsWith("http://localhost") ||
-        origin.startsWith("http://127.0.0.1")
+        origin.startsWith("https://tauri.localhost") ||
+        (process.env.NODE_ENV !== "production" &&
+          (origin.startsWith("http://localhost") || origin.startsWith("http://127.0.0.1")))
       ) {
         return callback(null, true);
       }
-      return callback(null, true);
+      return callback(null, false);
     },
     credentials: true,
   }),
 );
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+
+// Rate limiting general para proteger API en producción (Render)
+const apiLimiter = rateLimit({
+  windowMs: Number(process.env.API_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: Number(process.env.API_RATE_LIMIT_MAX) || 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    mensaje: "Demasiadas solicitudes. Intente nuevamente en unos minutos.",
+  },
+});
+app.use("/api", apiLimiter);
 
 const publicAdminDir = fileURLToPath(new URL("../public/admin", import.meta.url));
 const adminDistDir = fileURLToPath(new URL("../../admin-web/dist", import.meta.url));
@@ -82,7 +99,7 @@ if (adminDir) {
 app.get("/", (req, res) => {
   res.json({
     nombre: "La Palmera POS API",
-    version: "23.0.0",
+    version: "32.0.0",
     mensaje: "API Backend y Sincronización PostgreSQL activa 🚀",
     serverTime: new Date().toISOString(),
   });

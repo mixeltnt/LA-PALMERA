@@ -179,6 +179,7 @@ export const purchaseRepository = {
     // 3. Insertar items y actualizar stock / precio de costo
     for (const item of (compraData.items || [])) {
       const prodId = Number(item.productoId);
+      const safeProdId = prodId > 0 ? prodId : null;
       await db.execute(
         `INSERT INTO compra_items (
           compra_id, producto_id, codigo, nombre, cantidad,
@@ -186,7 +187,7 @@ export const purchaseRepository = {
         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           compraId,
-          prodId,
+          safeProdId,
           item.codigo || '',
           item.nombre || '',
           Number(item.cantidad ?? 0),
@@ -196,10 +197,10 @@ export const purchaseRepository = {
       );
 
       // Aumentar stock y actualizar precio de costo si aplica
-      if (prodId) {
+      if (safeProdId) {
         await db.execute(
-          'UPDATE productos SET stock_actual = stock_actual + ?, precio_costo = COALESCE(NULLIF(?, 0), precio_costo) WHERE id = ?',
-          [Number(item.cantidad ?? 0), Number(item.costoUnitario ?? 0), prodId]
+          'UPDATE productos SET stock_actual = ROUND(stock_actual + ?, 3), precio_costo = COALESCE(NULLIF(?, 0), precio_costo) WHERE id = ?',
+          [Number(item.cantidad ?? 0), Number(item.costoUnitario ?? 0), safeProdId]
         );
 
         // Registrar kardex
@@ -209,17 +210,17 @@ export const purchaseRepository = {
             stock_anterior, stock_nuevo, motivo, referencia_id, usuario_id
           ) VALUES (
             ?, ?, 'entrada_compra', ?,
-            (SELECT stock_actual - ? FROM productos WHERE id = ?),
+            (SELECT ROUND(stock_actual - ?, 3) FROM productos WHERE id = ?),
             (SELECT stock_actual FROM productos WHERE id = ?),
             'Compra #' || ?, ?, ?
           )`,
           [
-            prodId,
+            safeProdId,
             item.nombre,
             Number(item.cantidad ?? 0),
             Number(item.cantidad ?? 0),
-            prodId,
-            prodId,
+            safeProdId,
+            safeProdId,
             compraId,
             compraId,
             Number(compraData.usuarioId) || 1,

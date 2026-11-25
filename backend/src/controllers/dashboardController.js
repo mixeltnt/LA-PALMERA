@@ -1,11 +1,11 @@
-﻿// Controlador de Dashboard para futuro Panel Web y Aplicación Móvil - La Palmera POS
+// Controlador de Dashboard para futuro Panel Web y Aplicación Móvil - La Palmera POS
 import { query } from '../config/postgres.js';
 
 export const dashboardController = {
   getResumen: async (req, res) => {
     try {
       const [hoyRes, mesRes, topProdsRes, stockBajoRes, ultimasVentasRes, deudasRes] = await Promise.all([
-        // 1. Ventas de hoy
+        // 1. Ventas de hoy (Zona horaria Chile America/Santiago)
         query(`
           SELECT 
             COALESCE(SUM(total), 0) as total_hoy,
@@ -15,19 +15,19 @@ export const dashboardController = {
             COALESCE(SUM(CASE WHEN metodo_pago_principal = 'transferencia' THEN total ELSE 0 END), 0) as transferencia_hoy,
             COALESCE(SUM(CASE WHEN metodo_pago_principal = 'fiado' THEN total ELSE 0 END), 0) as fiado_hoy
           FROM ventas 
-          WHERE DATE(fecha) = CURRENT_DATE AND estado = 'completada'
+          WHERE DATE(fecha AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago') AND estado = 'completada'
         `),
 
-        // 2. Ventas del mes actual
+        // 2. Ventas del mes actual (Zona horaria Chile America/Santiago)
         query(`
           SELECT 
             COALESCE(SUM(total), 0) as total_mes,
             COUNT(*) as cantidad_mes
           FROM ventas 
-          WHERE DATE_TRUNC('month', fecha) = DATE_TRUNC('month', CURRENT_DATE) AND estado = 'completada'
+          WHERE DATE_TRUNC('month', fecha AT TIME ZONE 'America/Santiago') = DATE_TRUNC('month', NOW() AT TIME ZONE 'America/Santiago') AND estado = 'completada'
         `),
 
-        // 3. Top 5 productos más vendidos del mes
+        // 3. Top 5 productos más vendidos del mes (Zona horaria Chile America/Santiago)
         query(`
           SELECT 
             vi.codigo,
@@ -36,7 +36,7 @@ export const dashboardController = {
             SUM(vi.subtotal) as total_recaudado
           FROM venta_items vi
           JOIN ventas v ON vi.venta_id = v.id
-          WHERE v.estado = 'completada' AND DATE_TRUNC('month', v.fecha) = DATE_TRUNC('month', CURRENT_DATE)
+          WHERE v.estado = 'completada' AND DATE_TRUNC('month', v.fecha AT TIME ZONE 'America/Santiago') = DATE_TRUNC('month', NOW() AT TIME ZONE 'America/Santiago')
           GROUP BY vi.codigo, vi.nombre
           ORDER BY total_unidades DESC
           LIMIT 5

@@ -12,7 +12,7 @@ const detalleVentaSchema = new mongoose.Schema(
       ref: "Product",
       required: true,
     },
-    cantidad: { type: Number, required: true, min: 1 },
+    cantidad: { type: Number, required: true, min: 0.001 },
     precioUnitario: { type: Number, required: true, min: 0 },
     descuento: { type: Number, required: true, min: 0, default: 0 },
     subtotal: { type: Number, required: true, min: 0 },

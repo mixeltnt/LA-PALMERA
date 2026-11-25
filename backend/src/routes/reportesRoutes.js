@@ -6,11 +6,11 @@ const router = Router();
 
 router.use(authApiKeyOrJwt);
 
-// GET /api/reportes/ventas - Ventas por período y métodos de pago
-router.get("/ventas", reportesController.getVentasPorPeriodo);
+// GET /api/reportes/ventas o /api/reportes/periodo - Ventas por período y métodos de pago
+router.get(["/ventas", "/periodo"], reportesController.getVentasPorPeriodo);
 
-// GET /api/reportes/productos-top - Productos más vendidos
-router.get("/productos-top", reportesController.getProductosTop);
+// GET /api/reportes/productos-top o /api/reportes/top-productos - Productos más vendidos
+router.get(["/productos-top", "/top-productos"], reportesController.getProductosTop);
 
 // GET /api/reportes/inventario - Stock actual y valorización
 router.get("/inventario", reportesController.getInventario);

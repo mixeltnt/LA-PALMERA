@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Search, AlertTriangle, Filter, ChevronLeft, ChevronRight, TrendingUp } from "lucide-react";
 import { adminApi } from "../services/api";
 
@@ -47,24 +47,16 @@ export const ProductosView: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: "28px 32px", display: "flex", flexDirection: "column", gap: "24px" }}>
+    <div className="page-container">
       {/* Search & Filter Bar */}
-      <div className="glass-card" style={{ padding: "20px 24px" }}>
-        <form
-          onSubmit={handleSearch}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "2fr 1fr auto",
-            gap: "14px",
-            alignItems: "end",
-          }}
-        >
+      <div className="glass-card" style={{ padding: "18px 20px" }}>
+        <form onSubmit={handleSearch} className="filter-grid">
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "6px" }}>
               Buscar por Código o Nombre
             </label>
             <div style={{ position: "relative" }}>
-              <Search size={16} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "12px" }} />
+              <Search size={16} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "13px" }} />
               <input
                 type="text"
                 className="form-control"
@@ -94,22 +86,22 @@ export const ProductosView: React.FC = () => {
             </select>
           </div>
 
-          <button type="submit" className="btn btn-primary" style={{ height: "42px" }}>
+          <button type="submit" className="btn btn-primary" style={{ minWidth: "110px" }}>
             <Filter size={16} />
             <span>Filtrar</span>
           </button>
         </form>
       </div>
 
-      {/* Product Catalog Table */}
-      <div className="glass-card" style={{ padding: "24px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+      {/* Products Table */}
+      <div className="glass-card" style={{ padding: "20px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "8px" }}>
           <div>
-            <h3 style={{ fontSize: "17px", fontWeight: "700", color: "#f8fafc" }}>
+            <h3 style={{ fontSize: "16px", fontWeight: "700", color: "#f8fafc" }}>
               Catálogo de Productos & Precios
             </h3>
-            <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-              Total: {paginacion.total} productos registrados en Neon Cloud
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+              Total: {paginacion.total} productos registrados
             </span>
           </div>
         </div>
@@ -121,75 +113,88 @@ export const ProductosView: React.FC = () => {
                 <th>Código</th>
                 <th>Nombre del Producto</th>
                 <th>Categoría</th>
-                <th>Costo</th>
+                <th>Costo Compra</th>
                 <th>Precio Venta</th>
-                <th>Margen (%)</th>
+                <th>Margen Ganancia</th>
                 <th>Stock Actual</th>
-                <th>Estado</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
-                    Cargando catálogo desde la nube...
+                  <td colSpan={7} style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
+                    Cargando catálogo desde PostgreSQL Neon...
                   </td>
                 </tr>
               ) : productos.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
-                    No se encontraron productos.
+                  <td colSpan={7} style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
+                    No se encontraron productos registrados.
                   </td>
                 </tr>
               ) : (
                 productos.map((p) => {
-                  const stock = Number(p.stock) || 0;
-                  const stockMin = Number(p.stock_minimo) || 0;
-                  const isLow = stock <= stockMin;
-                  const margen = p.margen_porcentaje !== undefined
-                    ? Number(p.margen_porcentaje)
-                    : p.precio > 0
-                    ? Math.round(((p.precio - (p.costo || 0)) / p.precio) * 100)
-                    : 0;
+                  const stockCritico = (p.stock_actual || 0) <= (p.stock_minimo || 0);
+                  const margen =
+                    p.precio_venta && p.precio_costo
+                      ? Math.round(((p.precio_venta - p.precio_costo) / p.precio_costo) * 100)
+                      : null;
 
                   return (
-                    <tr key={p.id || p.codigo}>
-                      <td style={{ fontFamily: "monospace", fontSize: "13px", color: "var(--text-muted)" }}>
-                        {p.codigo || "S/C"}
+                    <tr key={p.id || p.codigo_barras}>
+                      <td>
+                        <span style={{ fontSize: "12px", fontFamily: "monospace", color: "var(--text-muted)" }}>
+                          {p.codigo_barras || "S/C"}
+                        </span>
                       </td>
-                      <td style={{ fontWeight: "600", color: "#f8fafc" }}>{p.nombre}</td>
+                      <td style={{ fontWeight: "600", color: "#f8fafc" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                          {p.imagen_url ? (
+                            <img
+                              src={p.imagen_url}
+                              alt=""
+                              style={{ width: "32px", height: "32px", borderRadius: "6px", objectFit: "cover", flexShrink: 0 }}
+                              onError={(e: any) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                          ) : null}
+                          <span>{p.nombre}</span>
+                        </div>
+                      </td>
                       <td>
                         <span className="badge badge-info">{p.categoria_nombre || "General"}</span>
                       </td>
-                      <td style={{ color: "var(--text-secondary)" }}>{formatMoney(p.costo)}</td>
-                      <td style={{ fontWeight: "700", color: "#34d399" }}>{formatMoney(p.precio)}</td>
-                      <td>
-                        <span
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "4px",
-                            fontWeight: "600",
-                            fontSize: "12px",
-                            color: margen >= 30 ? "#34d399" : margen > 0 ? "#fbbf24" : "#fb7185",
-                          }}
-                        >
-                          <TrendingUp size={12} />
-                          {margen}%
-                        </span>
+                      <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                        {formatMoney(p.precio_costo)}
                       </td>
-                      <td style={{ fontWeight: "700", color: isLow ? "#fb7185" : "#f8fafc" }}>
-                        {stock}
+                      <td style={{ fontWeight: "700", color: "#34d399", whiteSpace: "nowrap" }}>
+                        {formatMoney(p.precio_venta)}
                       </td>
                       <td>
-                        {isLow ? (
-                          <span className="badge badge-warning">
-                            <AlertTriangle size={12} />
-                            Bajo Stock
+                        {margen !== null ? (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", color: margen >= 30 ? "#34d399" : "#fbbf24", fontWeight: "600" }}>
+                            <TrendingUp size={13} />
+                            <span>{margen}%</span>
                           </span>
                         ) : (
-                          <span className="badge badge-success">Óptimo</span>
+                          <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>-</span>
                         )}
+                      </td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span
+                            style={{
+                              fontWeight: "700",
+                              color: stockCritico ? "#fb7185" : "#f8fafc",
+                            }}
+                          >
+                            {p.stock_actual || 0}
+                          </span>
+                          {stockCritico && (
+                            <span title="Stock bajo el mínimo" style={{ display: "inline-flex" }}>
+                              <AlertTriangle size={15} color="#fb7185" />
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -206,12 +211,14 @@ export const ProductosView: React.FC = () => {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              marginTop: "20px",
-              paddingTop: "16px",
+              marginTop: "16px",
+              paddingTop: "14px",
               borderTop: "1px solid var(--border-subtle)",
+              flexWrap: "wrap",
+              gap: "10px",
             }}
           >
-            <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+            <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
               Página {paginacion.page} de {paginacion.totalPages}
             </span>
             <div style={{ display: "flex", gap: "8px" }}>
@@ -221,14 +228,14 @@ export const ProductosView: React.FC = () => {
                 className="btn btn-secondary btn-sm"
               >
                 <ChevronLeft size={16} />
-                Anterior
+                <span>Anterior</span>
               </button>
               <button
                 disabled={paginacion.page >= paginacion.totalPages}
                 onClick={() => fetchData(paginacion.page + 1)}
                 className="btn btn-secondary btn-sm"
               >
-                Siguiente
+                <span>Siguiente</span>
                 <ChevronRight size={16} />
               </button>
             </div>

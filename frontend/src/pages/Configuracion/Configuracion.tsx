@@ -6,8 +6,70 @@ import { StorageConfig, BackupRecord } from '../../types/storage';
 import { factoryResetDatabase, dbManager } from '../../database/db';
 import { getApiBaseUrl, getApiKey, setApiKey, saveApiUrlToDatabase, testApiConnection } from '../../services/api';
 
+const THEMES = [
+  {
+    id: "dark",
+    name: "Esmeralda Neón (Recomendado)",
+    type: "Oscuro Neón",
+    desc: "Diseño insignia obsidian con tarjetas de cristal y resplandor verde esmeralda.",
+    colors: ["#0b1311", "#10b981", "#34d399"],
+    badgeColor: "#10b981",
+  },
+  {
+    id: "midnight",
+    name: "Obsidian Midnight",
+    type: "Ultra Oscuro",
+    desc: "Negro carbón profundo con acentos menta y bordes de titanio.",
+    colors: ["#09090b", "#22c55e", "#71717a"],
+    badgeColor: "#22c55e",
+  },
+  {
+    id: "sapphire",
+    name: "Azul Zafiro Cyber",
+    type: "Cyberpunk",
+    desc: "Azul cósmico profundo con acentos eléctricos y cian neón.",
+    colors: ["#060b17", "#0284c7", "#38bdf8"],
+    badgeColor: "#38bdf8",
+  },
+  {
+    id: "amethyst",
+    name: "Amatista Imperial",
+    type: "Púrpura Royale",
+    desc: "Obsidian violeta místico con acentos fucsia y magenta.",
+    colors: ["#0d0714", "#9333ea", "#c084fc"],
+    badgeColor: "#c084fc",
+  },
+  {
+    id: "amber",
+    name: "Ámbar Sunset",
+    type: "Bronce Cálido",
+    desc: "Carbón cálido con destellos dorados y ámbar de atardecer.",
+    colors: ["#120904", "#d97706", "#fbbf24"],
+    badgeColor: "#f59e0b",
+  },
+  {
+    id: "light",
+    name: "Esmeralda Cristal",
+    type: "Modo Claro",
+    desc: "Fondos claros perlados con tarjetas de cristal y esmeralda.",
+    colors: ["#f0fdf4", "#059669", "#ffffff"],
+    badgeColor: "#059669",
+  },
+  {
+    id: "arctic",
+    name: "Ártico Glaciar",
+    type: "Modo Claro",
+    desc: "Superficies blancas puras con reflejos de zafiro frío.",
+    colors: ["#f8fafc", "#0284c7", "#ffffff"],
+    badgeColor: "#0284c7",
+  },
+];
+
 export const Configuracion: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'business' | 'storage' | 'backups' | 'sync' | 'factory_reset'>('business');
+  const [activeTab, setActiveTab] = useState<'business' | 'storage' | 'backups' | 'sync' | 'appearance' | 'factory_reset'>('business');
+  const [currentTheme, setCurrentTheme] = useState<string>(() => {
+    return localStorage.getItem('lapalmera_theme') || localStorage.getItem('lapalmera-theme') || 'dark';
+  });
   const [storageConfig, setStorageConfig] = useState<StorageConfig>(storageService.getConfig());
   const [customPathInput, setCustomPathInput] = useState<string>(storageConfig.baseDir);
   const [desktopBackupDir, setDesktopBackupDir] = useState<string>(backupService.getDesktopBackupDirectory());
@@ -32,6 +94,14 @@ export const Configuracion: React.FC = () => {
   const [testConnResult, setTestConnResult] = useState<{ ok: boolean; message: string; details?: any } | null>(null);
   const [syncQueueRows, setSyncQueueRows] = useState<any[]>([]);
 
+  // Estados para Autorización de Seguridad en Clave de Sincronización (x-api-key)
+  const [showSyncAuthModal, setShowSyncAuthModal] = useState<boolean>(false);
+  const [syncAuthPassword, setSyncAuthPassword] = useState<string>('');
+  const [showSyncAuthPassword, setShowSyncAuthPassword] = useState<boolean>(false);
+  const [syncAuthError, setSyncAuthError] = useState<string>('');
+  const [isSyncAuthorized, setIsSyncAuthorized] = useState<boolean>(false);
+  const [pendingSyncAction, setPendingSyncAction] = useState<'reveal' | 'edit' | 'save' | null>(null);
+
   // Estados para Restablecer Datos de Fábrica
   const [showResetModal, setShowResetModal] = useState<boolean>(false);
   const [resetPassword, setResetPassword] = useState<string>('');
@@ -46,10 +116,10 @@ export const Configuracion: React.FC = () => {
   const [storageError, setStorageError] = useState<string>('');
 
   // Datos comerciales
-  const [businessName, setBusinessName] = useState('La Palmera POS');
+  const [businessName, setBusinessName] = useState('Minimarket La Palmera');
   const [businessRut, setBusinessRut] = useState('76.123.456-7');
-  const [businessAddress, setBusinessAddress] = useState('Av. Principal 1234, Santiago');
-  const [ticketFooter, setTicketFooter] = useState('¡Gracias por su compra en La Palmera!');
+  const [businessAddress, setBusinessAddress] = useState('Av. Comercial 1234');
+  const [ticketFooter, setTicketFooter] = useState('¡Gracias por su compra!');
   const [printerFormat, setPrinterFormat] = useState('termica_80mm');
 
   useEffect(() => {
@@ -166,6 +236,51 @@ export const Configuracion: React.FC = () => {
     }
   };
 
+  const handleRequestSyncAuth = (action: 'reveal' | 'edit' | 'save') => {
+    if (isSyncAuthorized) {
+      if (action === 'reveal') {
+        setShowApiKey(!showApiKey);
+      } else if (action === 'save') {
+        handleSaveApiConfig();
+      }
+      return;
+    }
+    setPendingSyncAction(action);
+    setSyncAuthPassword('');
+    setSyncAuthError('');
+    setShowSyncAuthPassword(false);
+    setShowSyncAuthModal(true);
+  };
+
+  const handleConfirmSyncAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSyncAuthError('');
+
+    if (!syncAuthPassword) {
+      setSyncAuthError('Por favor ingrese la contraseña de seguridad.');
+      return;
+    }
+
+    if (syncAuthPassword !== 'Mixeltnt2012') {
+      setSyncAuthError('Contraseña de seguridad incorrecta. Autorización denegada.');
+      return;
+    }
+
+    setIsSyncAuthorized(true);
+    setShowSyncAuthModal(false);
+    setSyncAuthPassword('');
+    setShowSyncAuthPassword(false);
+    setSyncAuthError('');
+    showFeedback('Autorización de seguridad concedida para Clave de Sincronización.', 'success');
+
+    if (pendingSyncAction === 'reveal') {
+      setShowApiKey(true);
+    } else if (pendingSyncAction === 'save') {
+      await handleSaveApiConfig();
+    }
+    setPendingSyncAction(null);
+  };
+
   const handleSaveApiConfig = async () => {
     try {
       setIsProcessing(true);
@@ -196,6 +311,15 @@ export const Configuracion: React.FC = () => {
     }
   };
 
+  const handleSelectTheme = (themeId: string) => {
+    setCurrentTheme(themeId);
+    localStorage.setItem('lapalmera_theme', themeId);
+    localStorage.setItem('lapalmera-theme', themeId);
+    document.documentElement.setAttribute('data-theme', themeId);
+    const themeObj = THEMES.find((t) => t.id === themeId);
+    showFeedback(`Tema visual "${themeObj?.name || themeId}" activado correctamente`, 'success');
+  };
+
   const handleCreateBackup = async () => {
     try {
       setIsProcessing(true);
@@ -210,14 +334,14 @@ export const Configuracion: React.FC = () => {
   };
 
   const handleRestoreBackup = async (backup: BackupRecord) => {
-    if (!window.confirm(`¿Está seguro de restaurar el respaldo del ${new Date(backup.creadoEn).toLocaleString()}? Los datos actuales se reemplazarán.`)) {
+    if (!window.confirm(`¿Está seguro de restaurar el respaldo del ${new Date(backup.creadoEn).toLocaleString()}? Los datos actuales se reemplazarán por esta copia.`)) {
       return;
     }
 
     try {
       setIsProcessing(true);
       await backupService.restoreBackup(backup.filePath);
-      showFeedback('Respaldo restaurado con éxito. La base de datos ha sido recargada.', 'success');
+      showFeedback('✅ Respaldo restaurado con éxito. La base de datos ha sido recargada correctamente.', 'success');
       await loadBackups();
     } catch (e: any) {
       showFeedback(e.message || 'Error restaurando respaldo', 'danger');
@@ -340,6 +464,15 @@ export const Configuracion: React.FC = () => {
             )}
           </button>
         </li>
+        <li className="nav-item">
+          <button
+            className={`nav-link px-4 py-2 fw-semibold ${activeTab === 'appearance' ? 'active' : ''}`}
+            onClick={() => setActiveTab('appearance')}
+          >
+            <i className="bi bi-palette me-2"></i>
+            Apariencias & Temas
+          </button>
+        </li>
         <li className="nav-item ms-auto">
           <button
             className={`nav-link px-4 py-2 fw-semibold border ${activeTab === 'factory_reset' ? 'btn-danger bg-danger text-white border-danger' : 'text-danger border-danger-subtle bg-danger-subtle bg-opacity-25'}`}
@@ -350,6 +483,93 @@ export const Configuracion: React.FC = () => {
           </button>
         </li>
       </ul>
+
+      {/* Contenido: Apariencias y Temas */}
+      {activeTab === 'appearance' && (
+        <div className="card shadow-sm border-0 rounded-3">
+          <div className="card-header bg-white py-3 border-bottom d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div className="d-flex align-items-center gap-2">
+              <i className="bi bi-palette-fill text-success fs-5"></i>
+              <h5 className="mb-0 fw-bold text-dark">Personalización de Temas y Apariencia Visual</h5>
+            </div>
+            <span className="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 rounded-pill">
+              Tema Activo: {THEMES.find(t => t.id === currentTheme)?.name || 'Esmeralda Neón'}
+            </span>
+          </div>
+          <div className="card-body p-4">
+            <p className="text-secondary small mb-4">
+              Selecciona el estilo visual que prefieras para el punto de venta. Todos los temas cuentan con acabados premium, glassmorphism, resplandores sutiles y soporte para maximizado fluido.
+            </p>
+
+            <div className="row g-3">
+              {THEMES.map((theme) => {
+                const isSelected = currentTheme === theme.id;
+                return (
+                  <div key={theme.id} className="col-md-6 col-lg-4">
+                    <div
+                      onClick={() => handleSelectTheme(theme.id)}
+                      className="p-3 rounded-3 border h-100 position-relative d-flex flex-column justify-content-between"
+                      style={{
+                        cursor: 'pointer',
+                        borderColor: isSelected ? 'var(--lp-primary)' : 'var(--lp-border-subtle)',
+                        borderWidth: isSelected ? '2px' : '1px',
+                        background: isSelected ? 'rgba(var(--lp-primary-rgb, 16, 185, 129), 0.1)' : 'var(--lp-card-bg)',
+                        boxShadow: isSelected ? 'var(--lp-shadow-glow)' : 'none',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      <div>
+                        <div className="d-flex align-items-center justify-content-between mb-2">
+                          <div className="d-flex align-items-center gap-2">
+                            <div className="d-flex gap-1">
+                              {theme.colors.map((c, i) => (
+                                <span
+                                  key={i}
+                                  style={{
+                                    width: '14px',
+                                    height: '14px',
+                                    borderRadius: '50%',
+                                    backgroundColor: c,
+                                    display: 'inline-block',
+                                    border: '1px solid rgba(255,255,255,0.3)',
+                                  }}
+                                />
+                              ))}
+                            </div>
+                            <span className="fw-bold fs-6 text-dark">{theme.name}</span>
+                          </div>
+                          {isSelected && (
+                            <span className="badge bg-success text-white px-2 py-1 small d-flex align-items-center gap-1">
+                              <i className="bi bi-check-circle-fill"></i> Activo
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-secondary small mb-3">{theme.desc}</p>
+                      </div>
+
+                      <div className="d-flex align-items-center justify-content-between pt-2 border-top border-secondary-subtle">
+                        <span className="badge bg-secondary-subtle text-secondary small text-uppercase">
+                          {theme.type}
+                        </span>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${isSelected ? 'btn-success text-white' : 'btn-outline-secondary'}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectTheme(theme.id);
+                          }}
+                        >
+                          {isSelected ? 'Seleccionado' : 'Activar Tema'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Contenido: Datos del Comercio */}
       {activeTab === 'business' && (
@@ -644,12 +864,13 @@ export const Configuracion: React.FC = () => {
                         <td className="text-end">
                           <button
                             type="button"
-                            className="btn btn-sm btn-outline-warning"
+                            className="btn btn-sm btn-outline-success"
                             onClick={() => handleRestoreBackup(bkp)}
                             disabled={isProcessing}
-                            title="Restaurar esta base de datos"
+                            title="Restaurar este respaldo"
                           >
-                            <i className="bi bi-arrow-counterclockwise me-1"></i> Restaurar
+                            <i className="bi bi-arrow-counterclockwise me-1"></i>
+                            Restaurar
                           </button>
                         </td>
                       </tr>
@@ -801,24 +1022,70 @@ export const Configuracion: React.FC = () => {
                   </div>
 
                   <div className="col-md-6">
-                    <label className="form-label fw-semibold small">Clave Secreta de Sincronización (x-api-key)</label>
+                    <div className="d-flex justify-content-between align-items-center mb-1">
+                      <label className="form-label fw-semibold small mb-0">
+                        Clave Secreta de Sincronización (x-api-key)
+                      </label>
+                      {isSyncAuthorized ? (
+                        <span className="badge bg-success-subtle text-success border border-success-subtle small py-1">
+                          <i className="bi bi-unlock-fill me-1"></i> Desbloqueado
+                        </span>
+                      ) : (
+                        <span className="badge bg-secondary-subtle text-secondary border border-secondary-subtle small py-1">
+                          <i className="bi bi-lock-fill me-1"></i> Protegido por Clave
+                        </span>
+                      )}
+                    </div>
                     <div className="input-group input-group-sm">
                       <input
-                        type={showApiKey ? 'text' : 'password'}
+                        type={showApiKey && isSyncAuthorized ? 'text' : 'password'}
                         className="form-control font-monospace"
-                        value={apiKeyInput}
-                        onChange={(e) => setApiKeyInput(e.target.value)}
-                        placeholder="API Key"
+                        value={isSyncAuthorized ? apiKeyInput : (apiKeyInput ? '••••••••••••••••••••••••' : '')}
+                        onChange={(e) => isSyncAuthorized && setApiKeyInput(e.target.value)}
+                        placeholder="API Key protegida"
+                        readOnly={!isSyncAuthorized}
+                        onClick={() => !isSyncAuthorized && handleRequestSyncAuth('edit')}
+                        style={{ cursor: isSyncAuthorized ? 'text' : 'pointer' }}
+                        title={!isSyncAuthorized ? "Haga clic para desbloquear con contraseña de seguridad" : ""}
                       />
-                      <button
-                        type="button"
-                        className="btn btn-outline-secondary"
-                        onClick={() => setShowApiKey(!showApiKey)}
-                      >
-                        <i className={`bi ${showApiKey ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                      </button>
+                      {!isSyncAuthorized ? (
+                        <button
+                          type="button"
+                          className="btn btn-outline-primary"
+                          onClick={() => handleRequestSyncAuth('reveal')}
+                          title="Desbloquear con contraseña de seguridad"
+                        >
+                          <i className="bi bi-shield-lock me-1"></i> Desbloquear
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary"
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            title={showApiKey ? 'Ocultar' : 'Ver clave'}
+                          >
+                            <i className={`bi ${showApiKey ? 'bi-eye-slash' : 'bi-eye'}`}></i>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary"
+                            onClick={() => {
+                              setIsSyncAuthorized(false);
+                              setShowApiKey(false);
+                            }}
+                            title="Volver a bloquear"
+                          >
+                            <i className="bi bi-lock-fill"></i>
+                          </button>
+                        </>
+                      )}
                     </div>
-                    <small className="text-muted">Protege la comunicación entre el POS y la API central</small>
+                    <small className="text-muted">
+                      {isSyncAuthorized
+                        ? 'Protege la comunicación entre el POS y la API central (PostgreSQL)'
+                        : 'Requiere contraseña de seguridad del desarrollador para ver o modificar'}
+                    </small>
                   </div>
                 </div>
 
@@ -826,7 +1093,7 @@ export const Configuracion: React.FC = () => {
                   <button
                     type="button"
                     className="btn btn-outline-success btn-sm"
-                    onClick={handleSaveApiConfig}
+                    onClick={() => handleRequestSyncAuth('save')}
                     disabled={isProcessing}
                   >
                     <i className="bi bi-save me-1"></i> Guardar Parámetros de Conexión
@@ -1158,6 +1425,98 @@ export const Configuracion: React.FC = () => {
                         <span>Autorizar y Guardar</span>
                       </>
                     )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal de Autorización de Seguridad para Clave de Sincronización */}
+      {showSyncAuthModal && (
+        <div
+          className="modal fade show d-block"
+          style={{ backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', zIndex: 1050 }}
+          tabIndex={-1}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0 shadow-lg">
+              <div className="modal-header bg-dark text-white py-3">
+                <h5 className="modal-title fw-bold d-flex align-items-center gap-2">
+                  <i className="bi bi-shield-lock-fill text-warning"></i>
+                  <span>Autorización de Seguridad — Clave de Sincronización</span>
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() => setShowSyncAuthModal(false)}
+                ></button>
+              </div>
+
+              <form onSubmit={handleConfirmSyncAuth}>
+                <div className="modal-body p-4">
+                  <div className="alert alert-warning py-2 small mb-3">
+                    <i className="bi bi-shield-exclamation me-1"></i>
+                    La <strong>Clave Secreta de Sincronización (x-api-key)</strong> autentica la conexión directa con la base de datos central PostgreSQL. Ingrese la contraseña de seguridad para acceder.
+                  </div>
+
+                  {syncAuthError && (
+                    <div className="alert alert-danger py-2 small d-flex align-items-center gap-2">
+                      <i className="bi bi-x-circle-fill"></i>
+                      <span>{syncAuthError}</span>
+                    </div>
+                  )}
+
+                  <div className="mb-3">
+                    <label className="form-label fw-semibold text-dark small mb-1">
+                      Ingrese la Contraseña de Seguridad del Desarrollador:
+                    </label>
+                    <div className="input-group">
+                      <span className="input-group-text bg-light text-secondary border-end-0">
+                        <i className="bi bi-key-fill"></i>
+                      </span>
+                      <input
+                        type={showSyncAuthPassword ? 'text' : 'password'}
+                        className="form-control border-start-0 border-end-0"
+                        placeholder="Contraseña de autorización"
+                        value={syncAuthPassword}
+                        onChange={(e) => {
+                          setSyncAuthPassword(e.target.value);
+                          setSyncAuthError('');
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary border-start-0"
+                        onClick={() => setShowSyncAuthPassword(!showSyncAuthPassword)}
+                        tabIndex={-1}
+                        title={showSyncAuthPassword ? 'Ocultar' : 'Ver'}
+                      >
+                        <i className={`bi ${showSyncAuthPassword ? 'bi-eye-slash' : 'bi-eye'}`}></i>
+                      </button>
+                    </div>
+                    <small className="text-muted d-block mt-1">
+                      Clave de autorización configurada por el desarrollador.
+                    </small>
+                  </div>
+                </div>
+
+                <div className="modal-footer bg-light py-2 px-4 border-top d-flex justify-content-end gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-secondary px-3"
+                    onClick={() => setShowSyncAuthModal(false)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-success px-4 fw-bold shadow-sm d-flex align-items-center gap-2"
+                    disabled={!syncAuthPassword}
+                  >
+                    <i className="bi bi-unlock-fill"></i>
+                    <span>Autorizar y Desbloquear</span>
                   </button>
                 </div>
               </form>

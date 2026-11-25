@@ -6,8 +6,8 @@ import { authMiddleware, autorizarRoles } from '../middleware/authMiddleware.js'
 
 const router = Router();
 
-// Todas las rutas administrativas requieren token JWT válido
-router.use(authMiddleware);
+// Todas las rutas administrativas requieren token JWT válido y rol de gestión
+router.use(authMiddleware, autorizarRoles('admin', 'encargada', 'supervisor'));
 
 // 1. Módulo de Ventas (Solo Lectura)
 router.get('/ventas', adminController.getVentasPaginadas);

@@ -276,3 +276,4 @@ CREATE TABLE IF NOT EXISTS sync_queue (
 CREATE INDEX IF NOT EXISTS idx_sync_queue_estado ON sync_queue(estado);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_op_id ON sync_queue(operation_id);
 `;
+

@@ -22,13 +22,32 @@ const emptyLine = {
   subtotal: 0,
 };
 
-const emptyForm = {
+// Fecha local YYYY-MM-DD (evita desfase UTC en horario nocturno de Chile)
+const getLocalTodayStr = () => {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+// Formatear fecha YYYY-MM-DD o timestamp evitando desfase UTC (new Date('YYYY-MM-DD') interpreta UTC 00:00 -> día anterior en Chile)
+const formatCompraDateCL = (raw) => {
+  if (!raw) return "—";
+  const str = String(raw).trim();
+  const dateOnlyMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    return `${dateOnlyMatch[3]}-${dateOnlyMatch[2]}-${dateOnlyMatch[1]}`;
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? str : d.toLocaleDateString("es-CL", { timeZone: "America/Santiago" });
+};
+
+const createEmptyForm = () => ({
   proveedor: "",
-  fechaCompra: new Date().toISOString().slice(0, 10),
+  fechaCompra: getLocalTodayStr(),
   numeroDocumento: "",
   observaciones: "",
   productos: [{ ...emptyLine }],
-};
+});
 
 const emptyNuevoProveedor = {
   nombre: "",
@@ -48,6 +67,7 @@ const emptyNuevoProducto = {
   precioVenta: "",
   stockMinimo: 2,
   unidadMedida: "Unidad",
+  permiteDecimales: false,
 };
 
 function Compras() {
@@ -60,7 +80,7 @@ function Compras() {
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(() => createEmptyForm());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToast] = useState(null);
@@ -138,7 +158,7 @@ function Compras() {
 
   const openCreate = () => {
     setEditingId(null);
-    setForm({ ...emptyForm, productos: [{ ...emptyLine }] });
+    setForm(createEmptyForm());
     setError("");
     setShowForm(true);
   };
@@ -381,19 +401,19 @@ function Compras() {
   const handleCrearProducto = async (e) => {
     e.preventDefault();
     if (!prodForm.nombre.trim()) {
-      setProdError("El nombre del producto es obligatorio.");
+      setProdError("El nombre del producto es obligatorio. Ejemplo: Arroz Grado 1 1kg o Palta Hass.");
       return;
     }
     if (!prodForm.codigo.trim()) {
-      setProdError("El código del producto es obligatorio.");
+      setProdError("El código del producto es obligatorio. Ejemplo: 780123456789 o PROD-01.");
       return;
     }
     if (!prodForm.precioCompra || Number(prodForm.precioCompra) <= 0) {
-      setProdError("El precio de compra debe ser mayor a 0.");
+      setProdError("El precio de costo de compra debe ser mayor a $0. Ejemplo: 850.");
       return;
     }
     if (!prodForm.precioVenta || Number(prodForm.precioVenta) <= 0) {
-      setProdError("El precio de venta debe ser mayor a 0.");
+      setProdError("El precio de venta sugerido debe ser mayor a $0. Ejemplo: 1200.");
       return;
     }
 
@@ -401,6 +421,7 @@ function Compras() {
     try {
       const res = await productService.crear({
         ...prodForm,
+        permiteDecimales: Boolean(prodForm.permiteDecimales || prodForm.unidadMedida === "Kilogramo" || String(prodForm.unidadMedida).toLowerCase().includes("kilo")),
         stockActual: 0, // Se sumará automáticamente con la compra
       });
       const nuevoProd = res.producto;
@@ -441,24 +462,44 @@ function Compras() {
 
   const validarForm = () => {
     const errores = [];
-    if (!form.proveedor) errores.push("El proveedor es obligatorio.");
-    if (!form.numeroDocumento.trim())
-      errores.push("El número de documento es obligatorio.");
-    if (!form.productos.length)
-      errores.push("Debe agregar al menos un producto.");
-    form.productos.forEach((line, index) => {
-      if (!line.producto)
-        errores.push(`La línea ${index + 1} debe incluir un producto.`);
-      if (!Number(line.cantidad) || Number(line.cantidad) <= 0)
-        errores.push(
-          `La cantidad de la línea ${index + 1} debe ser mayor a 0.`,
-        );
-      if (!Number(line.precioCompra) || Number(line.precioCompra) <= 0)
-        errores.push(`El precio de la línea ${index + 1} debe ser mayor a 0.`);
-    });
-    const productosIds = form.productos.map((line) => line.producto);
-    if (new Set(productosIds).size !== productosIds.length)
-      errores.push("No se permiten productos duplicados en la misma compra.");
+    const hoyStr = getLocalTodayStr();
+
+    if (!form.proveedor) {
+      errores.push("Debe seleccionar un proveedor de la lista o crear uno con '+ Nuevo'. Ejemplo: Distribuidora Los Andes.");
+    }
+
+    if (!form.fechaCompra) {
+      errores.push(`La fecha de compra es obligatoria. Ejemplo: ${hoyStr}.`);
+    } else if (form.fechaCompra > hoyStr) {
+      errores.push(`La fecha de compra (${form.fechaCompra}) no puede ser una fecha futura. La fecha máxima permitida es hoy (${hoyStr}).`);
+    } else if (form.fechaCompra < "2020-01-01") {
+      errores.push("La fecha de compra ingresada no es válida. Debe ser posterior al año 2020.");
+    }
+
+    if (!form.numeroDocumento || !form.numeroDocumento.trim()) {
+      errores.push("El número de factura o boleta es obligatorio. Ejemplo: FAC-12948, F-1002 o BOL-091.");
+    }
+
+    if (!form.productos || !form.productos.length) {
+      errores.push("Debe agregar al menos un producto a la compra. Ejemplo: Pistolea el código de barras o usa el buscador.");
+    } else {
+      form.productos.forEach((line, index) => {
+        const num = index + 1;
+        if (!line.producto) {
+          errores.push(`Línea #${num}: Debe seleccionar o escanear un producto existente o crearlo con '+ Crear Nuevo Producto'.`);
+        }
+        if (!Number(line.cantidad) || Number(line.cantidad) <= 0) {
+          errores.push(`Línea #${num} (${line.nombre || 'Producto'}): La cantidad debe ser mayor a 0. Ejemplo: 10 unidades o 1.500 kg.`);
+        }
+        if (!Number(line.precioCompra) || Number(line.precioCompra) <= 0) {
+          errores.push(`Línea #${num} (${line.nombre || 'Producto'}): El precio de costo unitario debe ser mayor a $0. Ejemplo: $850.`);
+        }
+      });
+      const productosIds = form.productos.map((line) => line.producto).filter(Boolean);
+      if (new Set(productosIds).size !== productosIds.length) {
+        errores.push("No se permiten productos duplicados en la misma compra. Si compraste más unidades del mismo producto, incrementa su cantidad.");
+      }
+    }
     return errores;
   };
 
@@ -480,7 +521,7 @@ function Compras() {
         proveedorNombre: provSeleccionado?.nombre || "Proveedor",
         numeroFactura: form.numeroDocumento,
         fecha: form.fechaCompra,
-        estado: confirmar ? "completada" : "BORRADOR",
+        estado: confirmar ? "completada" : "pendiente",
         total: calcularTotal(),
         items: form.productos.map((p) => {
           const prodObj = productos.find((item) => String(item._id || item.id) === String(p.producto));
@@ -519,7 +560,7 @@ function Compras() {
         });
       }
       setShowForm(false);
-      setForm({ ...emptyForm, productos: [{ ...emptyLine }] });
+      setForm(createEmptyForm());
       cargar();
       recargarCatalogos();
     } catch (err) {
@@ -613,9 +654,7 @@ function Compras() {
                           {c.numeroDocumento || c.numeroFactura || `Folio #${c.folio || c.id}`}
                         </td>
                         <td>
-                          {c.fechaCompra || c.fecha
-                            ? new Date(c.fechaCompra || c.fecha).toLocaleDateString("es-CL")
-                            : "—"}
+                          {formatCompraDateCL(c.fechaCompra || c.fecha)}
                         </td>
                         <td>{c.proveedor?.nombre || c.proveedorNombre || "—"}</td>
                         <td>
@@ -696,9 +735,9 @@ function Compras() {
 
       {/* --- MODAL PRINCIPAL: NUEVA COMPRA --- */}
       {showForm && (
-        <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: "rgba(0,0,0,0.6)" }}>
+        <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}>
           <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-            <div className="modal-content shadow-lg border-0">
+            <div className="modal-content shadow-lg border-0" style={{ backgroundColor: "var(--lp-surface, #1e1e24)", color: "var(--lp-text, #ffffff)" }}>
               <div className="modal-header bg-success text-white">
                 <h5 className="modal-title fw-bold">
                   <i className="bi bi-truck me-2"></i>
@@ -710,7 +749,7 @@ function Compras() {
                   onClick={() => setShowForm(false)}
                 ></button>
               </div>
-              <div className="modal-body p-4">
+              <div className="modal-body p-4" style={{ backgroundColor: "var(--lp-surface, #1e1e24)" }}>
                 {error && (
                   <div className="alert alert-danger py-2 small d-flex align-items-center gap-2">
                     <i className="bi bi-exclamation-triangle-fill"></i>
@@ -719,7 +758,7 @@ function Compras() {
                 )}
 
                 {/* Cabecera de la Compra */}
-                <div className="row g-3 mb-3 bg-light p-3 rounded border">
+                <div className="row g-3 mb-3 p-3 rounded border" style={{ backgroundColor: "var(--lp-surface-alt, rgba(255,255,255,0.04))", borderColor: "var(--lp-border, rgba(255,255,255,0.1))" }}>
                   <div className="col-md-5">
                     <label className="form-label small fw-bold">
                       Proveedor *
@@ -759,6 +798,7 @@ function Compras() {
                       type="date"
                       name="fechaCompra"
                       value={form.fechaCompra}
+                      max={getLocalTodayStr()}
                       onChange={handleChange}
                     />
                   </div>
@@ -785,12 +825,12 @@ function Compras() {
                 </div>
 
                 {/* Barra de Pistoleo / Escaneo Directo de Productos */}
-                <div className="card bg-success-subtle border-success border-opacity-25 mb-3">
+                <div className="card mb-3 border" style={{ backgroundColor: "var(--lp-surface-alt, rgba(255,255,255,0.03))", borderColor: "var(--lp-border, rgba(255,255,255,0.1))" }}>
                   <div className="card-body py-2 px-3">
                     <div className="row align-items-center g-2">
                       <div className="col-md-7">
                         <div className="input-group input-group-sm">
-                          <span className="input-group-text bg-white text-success fw-bold">
+                          <span className="input-group-text fw-bold text-success" style={{ backgroundColor: "var(--lp-surface, #1e1e24)", borderColor: "var(--lp-border, rgba(255,255,255,0.15))" }}>
                             <i className="bi bi-upc-scan me-1"></i> <span className="d-none d-sm-inline">Escanear:</span>
                           </span>
                           <input
@@ -822,10 +862,10 @@ function Compras() {
                 </div>
 
                 {/* Tabla de Productos de la Compra */}
-                <div className="table-responsive border rounded">
+                <div className="table-responsive border rounded" style={{ borderColor: "var(--lp-border, rgba(255,255,255,0.1))" }}>
                   <table className="table table-sm align-middle mb-0">
-                    <thead className="table-light">
-                      <tr>
+                    <thead>
+                      <tr style={{ backgroundColor: "var(--lp-surface-alt, rgba(255,255,255,0.06))" }}>
                         <th style={{ width: "42%" }}>Producto</th>
                         <th style={{ width: "15%" }}>Cantidad</th>
                         <th style={{ width: "20%" }}>Precio Compra ($)</th>
@@ -858,7 +898,8 @@ function Compras() {
                             <input
                               className="form-control form-control-sm"
                               type="number"
-                              min="1"
+                              min="0.001"
+                              step="any"
                               value={line.cantidad}
                               onChange={(e) =>
                                 handleLineChange(index, "cantidad", e.target.value)
@@ -881,7 +922,7 @@ function Compras() {
                               />
                             </div>
                           </td>
-                          <td className="text-end fw-bold text-dark">
+                          <td className="text-end fw-bold text-success">
                             ${Number(line.subtotal || 0).toLocaleString("es-CL")}
                           </td>
                           <td className="text-center">
@@ -917,7 +958,7 @@ function Compras() {
                 </div>
               </div>
 
-              <div className="modal-footer bg-light">
+              <div className="modal-footer" style={{ backgroundColor: "var(--lp-surface, #1e1e24)", borderColor: "var(--lp-border, rgba(255,255,255,0.1))" }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -953,11 +994,11 @@ function Compras() {
         <div
           className="modal d-block"
           tabIndex={-1}
-          style={{ backgroundColor: "rgba(0,0,0,0.7)", zIndex: 1060 }}
+          style={{ backgroundColor: "rgba(0,0,0,0.7)", zIndex: 1060, backdropFilter: "blur(3px)" }}
         >
           <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content shadow border-0">
-              <div className="modal-header bg-dark text-white py-2">
+            <div className="modal-content shadow border-0" style={{ backgroundColor: "var(--lp-surface, #1e1e24)", color: "var(--lp-text, #ffffff)" }}>
+              <div className="modal-header bg-dark text-white py-2 border-bottom" style={{ borderColor: "var(--lp-border, rgba(255,255,255,0.1))" }}>
                 <h6 className="modal-title fw-bold">
                   <i className="bi bi-person-plus-fill text-success me-2"></i>
                   Crear Proveedor Rápido
@@ -1050,11 +1091,11 @@ function Compras() {
         <div
           className="modal d-block"
           tabIndex={-1}
-          style={{ backgroundColor: "rgba(0,0,0,0.7)", zIndex: 1060 }}
+          style={{ backgroundColor: "rgba(0,0,0,0.7)", zIndex: 1060, backdropFilter: "blur(3px)" }}
         >
           <div className="modal-dialog modal-lg modal-dialog-centered">
-            <div className="modal-content shadow border-0">
-              <div className="modal-header bg-dark text-white py-2">
+            <div className="modal-content shadow border-0" style={{ backgroundColor: "var(--lp-surface, #1e1e24)", color: "var(--lp-text, #ffffff)" }}>
+              <div className="modal-header bg-dark text-white py-2 border-bottom" style={{ borderColor: "var(--lp-border, rgba(255,255,255,0.1))" }}>
                 <h6 className="modal-title fw-bold">
                   <i className="bi bi-box-seam-fill text-success me-2"></i>
                   Crear Producto Nuevo para Compra
@@ -1148,7 +1189,11 @@ function Compras() {
                       <select
                         className="form-select form-select-sm"
                         value={prodForm.unidadMedida}
-                        onChange={(e) => setProdForm({ ...prodForm, unidadMedida: e.target.value })}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const isKg = val === "Kilogramo" || val.toLowerCase().includes("kilo");
+                          setProdForm({ ...prodForm, unidadMedida: val, permiteDecimales: isKg });
+                        }}
                       >
                         <option value="Unidad">Unidad (un)</option>
                         <option value="Kilogramo">Kilogramo (kg)</option>
@@ -1158,7 +1203,21 @@ function Compras() {
                     </div>
                   </div>
 
-                  <div className="row g-2 mb-2 bg-light p-2 rounded border">
+                  <div className="row g-2 mb-2 p-2 rounded border" style={{ backgroundColor: "var(--lp-surface-alt, rgba(255,255,255,0.04))", borderColor: "var(--lp-border, rgba(255,255,255,0.1))" }}>
+                    <div className="col-12 mb-1">
+                      <div className="form-check form-switch">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="modalProdPermiteDecimales"
+                          checked={Boolean(prodForm.permiteDecimales)}
+                          onChange={(e) => setProdForm({ ...prodForm, permiteDecimales: e.target.checked })}
+                        />
+                        <label className="form-check-label small fw-semibold ms-1" htmlFor="modalProdPermiteDecimales">
+                          ⚖️ Venta por Balanza / Kilos (permite decimales)
+                        </label>
+                      </div>
+                    </div>
                     <div className="col-md-4">
                       <label className="form-label small fw-bold mb-1 text-danger">Precio Compra (Costo) *</label>
                       <div className="input-group input-group-sm">
@@ -1225,10 +1284,10 @@ function Compras() {
 
       {/* --- MODAL DETALLE DE COMPRA --- */}
       {detalleCompra && (
-        <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: "rgba(0,0,0,0.6)" }}>
+        <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}>
           <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-            <div className="modal-content shadow border-0">
-              <div className="modal-header bg-dark text-white">
+            <div className="modal-content shadow border-0" style={{ backgroundColor: "var(--lp-surface, #1e1e24)", color: "var(--lp-text, #ffffff)" }}>
+              <div className="modal-header bg-dark text-white border-bottom" style={{ borderColor: "var(--lp-border, rgba(255,255,255,0.1))" }}>
                 <h5 className="modal-title fw-bold">
                   <i className="bi bi-receipt me-2"></i>Detalle de Compra #{detalleCompra.compra?.numeroCompra || detalleCompra.compra?.id}
                 </h5>
@@ -1238,8 +1297,8 @@ function Compras() {
                   onClick={() => setDetalleCompra(null)}
                 ></button>
               </div>
-              <div className="modal-body p-4">
-                <div className="row g-3 mb-3 p-3 bg-light rounded border">
+              <div className="modal-body p-4" style={{ backgroundColor: "var(--lp-surface, #1e1e24)" }}>
+                <div className="row g-3 mb-3 p-3 rounded border" style={{ backgroundColor: "var(--lp-surface-alt, rgba(255,255,255,0.04))", borderColor: "var(--lp-border, rgba(255,255,255,0.1))" }}>
                   <div className="col-md-4">
                     <small className="text-muted d-block">Proveedor</small>
                     <strong>{detalleCompra.compra?.proveedor?.nombre || detalleCompra.compra?.proveedorNombre || "—"}</strong>
@@ -1259,10 +1318,10 @@ function Compras() {
                 </div>
 
                 <h6 className="fw-bold mb-2">Productos Comprados:</h6>
-                <div className="table-responsive border rounded">
+                <div className="table-responsive border rounded" style={{ borderColor: "var(--lp-border, rgba(255,255,255,0.1))" }}>
                   <table className="table table-sm align-middle mb-0">
-                    <thead className="table-light">
-                      <tr>
+                    <thead>
+                      <tr style={{ backgroundColor: "var(--lp-surface-alt, rgba(255,255,255,0.06))" }}>
                         <th>Producto</th>
                         <th>Código</th>
                         <th className="text-center">Cantidad</th>
@@ -1277,7 +1336,7 @@ function Compras() {
                           <td className="text-muted small">{it.codigo || "—"}</td>
                           <td className="text-center">{it.cantidad}</td>
                           <td className="text-end">${Number(it.costoUnitario || 0).toLocaleString("es-CL")}</td>
-                          <td className="text-end fw-bold">${Number(it.subtotal || 0).toLocaleString("es-CL")}</td>
+                          <td className="text-end fw-bold text-success">${Number(it.subtotal || 0).toLocaleString("es-CL")}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1291,7 +1350,7 @@ function Compras() {
                   </span>
                 </div>
               </div>
-              <div className="modal-footer bg-light">
+              <div className="modal-footer" style={{ backgroundColor: "var(--lp-surface, #1e1e24)", borderColor: "var(--lp-border, rgba(255,255,255,0.1))" }}>
                 <button
                   type="button"
                   className="btn btn-secondary"

@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -10,6 +10,14 @@ import { ClientesView } from "./views/ClientesView";
 import { CajaView } from "./views/CajaView";
 import { ReportesView } from "./views/ReportesView";
 import { ConfiguracionView } from "./views/ConfiguracionView";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import {
+  LayoutDashboard,
+  ShoppingCart,
+  Package,
+  Users,
+  Menu
+} from "lucide-react";
 
 const MainLayout: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -17,6 +25,7 @@ const MainLayout: React.FC = () => {
   const [selectedVentaId, setSelectedVentaId] = useState<string | number | null>(null);
   const [refreshKey, setRefreshKey] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   if (isLoading) {
     return (
@@ -52,19 +61,19 @@ const MainLayout: React.FC = () => {
   const getTabTitle = () => {
     switch (activeTab) {
       case "dashboard":
-        return { title: "Dashboard Administrativo", subtitle: "Métricas y resumen en vivo desde Neon Cloud" };
+        return { title: "Dashboard", subtitle: "Métricas y resumen en vivo desde Neon Cloud" };
       case "ventas":
         return { title: "Ventas & Boletas", subtitle: "Historial completo de transacciones electrónicas" };
       case "productos":
-        return { title: "Productos & Catálogo", subtitle: "Control de precios, costos, márgenes y stock" };
+        return { title: "Productos & Stock", subtitle: "Control de precios, costos, márgenes y catálogo" };
       case "clientes":
-        return { title: "Clientes & Cuentas Corrientes", subtitle: "Gestión de fiados, límites y abonos" };
+        return { title: "Clientes & Fiados", subtitle: "Gestión de cuentas corrientes, límites y abonos" };
       case "caja":
         return { title: "Caja & Turnos", subtitle: "Control de aperturas, cierres y arqueos" };
       case "reportes":
-        return { title: "Reportes & Analítica", subtitle: "Rendimiento comercial y rankings de productos" };
+        return { title: "Reportes", subtitle: "Rendimiento comercial y rankings de productos" };
       case "configuracion":
-        return { title: "Configuración & Cloud", subtitle: "Parámetros de conexión y estado de Neon" };
+        return { title: "Configuración", subtitle: "Parámetros de conexión y estado de Neon" };
       default:
         return { title: "Panel Administrativo", subtitle: "" };
     }
@@ -73,39 +82,90 @@ const MainLayout: React.FC = () => {
   const { title, subtitle } = getTabTitle();
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", backgroundColor: "var(--bg-main)" }}>
-      {/* Sidebar Navigation */}
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+    <div style={{ display: "flex", minHeight: "100vh", backgroundColor: "var(--bg-main)", width: "100%", overflowX: "hidden" }}>
+      {/* Sidebar Navigation (Desktop Fixed & Mobile Drawer) */}
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isOpenMobile={isMobileMenuOpen}
+        onCloseMobile={() => setIsMobileMenuOpen(false)}
+      />
 
       {/* Main Content Area */}
-      <main style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <main style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, width: "100%" }}>
         <Header
           title={title}
           subtitle={subtitle}
           onRefresh={handleRefresh}
           isRefreshing={isRefreshing}
+          onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
         />
 
-        <div key={refreshKey} style={{ flex: 1 }}>
-          {activeTab === "dashboard" && (
-            <DashboardView
-              onViewVenta={handleViewVenta}
-              onNavigate={(tab) => setActiveTab(tab)}
-            />
-          )}
-          {activeTab === "ventas" && (
-            <VentasView
-              initialVentaId={selectedVentaId}
-              onClearInitialVentaId={() => setSelectedVentaId(null)}
-            />
-          )}
-          {activeTab === "productos" && <ProductosView />}
-          {activeTab === "clientes" && <ClientesView />}
-          {activeTab === "caja" && <CajaView />}
-          {activeTab === "reportes" && <ReportesView />}
-          {activeTab === "configuracion" && <ConfiguracionView />}
+        <div key={refreshKey} style={{ flex: 1, width: "100%" }}>
+          <ErrorBoundary>
+            {activeTab === "dashboard" && (
+              <DashboardView
+                onViewVenta={handleViewVenta}
+                onNavigate={(tab) => setActiveTab(tab)}
+              />
+            )}
+            {activeTab === "ventas" && (
+              <VentasView
+                initialVentaId={selectedVentaId}
+                onClearInitialVentaId={() => setSelectedVentaId(null)}
+              />
+            )}
+            {activeTab === "productos" && <ProductosView />}
+            {activeTab === "clientes" && <ClientesView />}
+            {activeTab === "caja" && <CajaView />}
+            {activeTab === "reportes" && <ReportesView />}
+            {activeTab === "configuracion" && <ConfiguracionView />}
+          </ErrorBoundary>
         </div>
       </main>
+
+      {/* Mobile Bottom Quick Navigation Bar */}
+      <nav className="mobile-bottom-nav">
+        <button
+          onClick={() => setActiveTab("dashboard")}
+          className={`mobile-nav-btn ${activeTab === "dashboard" ? "active" : ""}`}
+        >
+          <LayoutDashboard size={20} />
+          <span>Dashboard</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("ventas")}
+          className={`mobile-nav-btn ${activeTab === "ventas" ? "active" : ""}`}
+        >
+          <ShoppingCart size={20} />
+          <span>Ventas</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("productos")}
+          className={`mobile-nav-btn ${activeTab === "productos" ? "active" : ""}`}
+        >
+          <Package size={20} />
+          <span>Stock</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("clientes")}
+          className={`mobile-nav-btn ${activeTab === "clientes" ? "active" : ""}`}
+        >
+          <Users size={20} />
+          <span>Fiados</span>
+        </button>
+
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="mobile-nav-btn"
+        >
+          <Menu size={20} />
+          <span>Menú</span>
+        </button>
+      </nav>
     </div>
   );
 };

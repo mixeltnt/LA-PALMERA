@@ -10,7 +10,8 @@ export const adminController = {
       const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '20', 10)));
       const offset = (page - 1) * limit;
 
-      const { folio, cliente, desde, hasta, estado, cajeroNombre, metodoPago } = req.query;
+      const { folio, cliente, search, desde, hasta, estado, cajeroNombre, metodoPago, metodo_pago } = req.query;
+      const metodoFiltro = (metodoPago || metodo_pago || '').trim();
 
       let whereConditions = ['1=1'];
       const params = [];
@@ -20,6 +21,18 @@ export const adminController = {
         whereConditions.push(`v.folio = $${params.length}`);
       }
 
+      if (search && String(search).trim()) {
+        const cleanSearch = String(search).trim();
+        const numSearch = Number(cleanSearch);
+        if (!isNaN(numSearch) && Number.isInteger(numSearch) && numSearch > 0) {
+          params.push(numSearch, `%${cleanSearch}%`);
+          whereConditions.push(`(v.folio = $${params.length - 1} OR v.cliente_nombre ILIKE $${params.length} OR v.cajero_nombre ILIKE $${params.length} OR v.numero_boleta ILIKE $${params.length})`);
+        } else {
+          params.push(`%${cleanSearch}%`);
+          whereConditions.push(`(v.cliente_nombre ILIKE $${params.length} OR v.cajero_nombre ILIKE $${params.length} OR v.numero_boleta ILIKE $${params.length})`);
+        }
+      }
+
       if (cliente) {
         params.push(`%${cliente.trim()}%`);
         whereConditions.push(`v.cliente_nombre ILIKE $${params.length}`);
@@ -27,17 +40,17 @@ export const adminController = {
 
       if (desde) {
         params.push(desde);
-        whereConditions.push(`DATE(v.fecha) >= $${params.length}`);
+        whereConditions.push(`DATE(v.fecha AT TIME ZONE 'America/Santiago') >= $${params.length}`);
       }
 
       if (hasta) {
         params.push(hasta);
-        whereConditions.push(`DATE(v.fecha) <= $${params.length}`);
+        whereConditions.push(`DATE(v.fecha AT TIME ZONE 'America/Santiago') <= $${params.length}`);
       }
 
       if (estado) {
         params.push(estado.trim());
-        whereConditions.push(`v.estado = $${params.length}`);
+        whereConditions.push(`LOWER(v.estado) = LOWER($${params.length})`);
       }
 
       if (cajeroNombre) {
@@ -45,9 +58,9 @@ export const adminController = {
         whereConditions.push(`v.cajero_nombre ILIKE $${params.length}`);
       }
 
-      if (metodoPago) {
-        params.push(metodoPago.trim());
-        whereConditions.push(`v.metodo_pago_principal = $${params.length}`);
+      if (metodoFiltro) {
+        params.push(metodoFiltro);
+        whereConditions.push(`LOWER(v.metodo_pago_principal) = LOWER($${params.length})`);
       }
 
       const whereClause = whereConditions.join(' AND ');
@@ -63,8 +76,8 @@ export const adminController = {
         SELECT 
           v.id, v.sqlite_id, v.folio, v.numero_boleta, v.fecha,
           v.cajero_id, v.cajero_nombre, v.cliente_id, v.cliente_nombre,
-          v.subtotal, v.descuento_total, v.impuesto_total, v.total,
-          v.monto_recibido, v.vuelto, v.metodo_pago_principal, v.estado,
+          v.subtotal, v.descuento_total, v.impuesto_total, v.impuesto_total as iva, v.total,
+          v.monto_recibido, v.vuelto, v.metodo_pago_principal, v.metodo_pago_principal as metodo_pago, v.estado,
           v.motivo_anulacion, v.notas, v.sincronizado_en, v.creado_en
         FROM ventas v
         WHERE ${whereClause}
@@ -110,8 +123,13 @@ export const adminController = {
       // Consultar items y pagos en paralelo
       const [itemsRes, pagosRes] = await Promise.all([
         query(
-          `SELECT id, sqlite_id, producto_id, codigo, nombre, cantidad, precio_unitario, costo_unitario, descuento, subtotal 
-           FROM venta_items WHERE venta_id = $1 ORDER BY id ASC`,
+          `SELECT vi.id, vi.sqlite_id, vi.producto_id, vi.codigo, vi.nombre, vi.cantidad, vi.precio_unitario, vi.costo_unitario, vi.descuento, vi.subtotal,
+                  COALESCE(p.imagen_url, p2.imagen_url) as imagen_url
+           FROM venta_items vi
+           LEFT JOIN productos p ON vi.producto_id = p.id
+           LEFT JOIN productos p2 ON (vi.codigo IS NOT NULL AND vi.codigo != '' AND vi.codigo = p2.codigo)
+           WHERE vi.venta_id = $1 
+           ORDER BY vi.id ASC`,
           [venta.id]
         ),
         query(
@@ -123,10 +141,13 @@ export const adminController = {
 
       return res.json({
         success: true,
+        venta: venta,
+        items: itemsRes.rows || [],
+        pagos: pagosRes.rows || [],
         data: {
           ...venta,
-          items: itemsRes.rows,
-          pagos: pagosRes.rows,
+          items: itemsRes.rows || [],
+          pagos: pagosRes.rows || [],
         },
       });
     } catch (error) {
@@ -142,7 +163,8 @@ export const adminController = {
       const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '20', 10)));
       const offset = (page - 1) * limit;
 
-      const { search, categoriaId, activo, stockBajo } = req.query;
+      const { search, categoriaId, categoria_id, activo, stockBajo } = req.query;
+      const catFilter = categoriaId || categoria_id;
 
       let whereConditions = ['1=1'];
       const params = [];
@@ -152,8 +174,8 @@ export const adminController = {
         whereConditions.push(`(p.nombre ILIKE $${params.length} OR p.codigo ILIKE $${params.length} OR p.codigo_barras ILIKE $${params.length})`);
       }
 
-      if (categoriaId) {
-        params.push(parseInt(categoriaId, 10));
+      if (catFilter) {
+        params.push(parseInt(catFilter, 10));
         whereConditions.push(`p.categoria_id = $${params.length}`);
       }
 
@@ -299,17 +321,26 @@ export const adminController = {
         return res.status(400).json({ success: false, message: 'ID de cliente inválido' });
       }
 
-      const movRes = await query(`
-        SELECT 
-          cm.id, cm.sqlite_id, cm.cliente_id, cm.tipo_movimiento, cm.monto,
-          cm.saldo_resultante, cm.observacion, cm.venta_id, cm.usuario_id, cm.estado, cm.fecha
-        FROM cliente_movimientos cm
-        WHERE cm.cliente_id = $1
-        ORDER BY cm.fecha DESC, cm.id DESC
-      `, [clienteId]);
+      const [clienteRes, movRes] = await Promise.all([
+        query(
+          `SELECT id, sqlite_id, rut, nombre, telefono, email, direccion, ciudad, limite_credito, saldo_deudor, activo
+           FROM clientes WHERE id = $1 LIMIT 1`,
+          [clienteId]
+        ),
+        query(`
+          SELECT 
+            cm.id, cm.sqlite_id, cm.cliente_id, cm.tipo_movimiento, cm.tipo_movimiento as tipo, cm.monto,
+            cm.saldo_resultante, cm.saldo_resultante as saldo_posterior, cm.observacion, cm.venta_id, cm.usuario_id, cm.estado, cm.fecha
+          FROM cliente_movimientos cm
+          WHERE cm.cliente_id = $1
+          ORDER BY cm.fecha DESC, cm.id DESC
+        `, [clienteId]),
+      ]);
 
       return res.json({
         success: true,
+        cliente: clienteRes.rows[0] || null,
+        movimientos: movRes.rows,
         data: movRes.rows,
       });
     } catch (error) {
@@ -337,12 +368,12 @@ export const adminController = {
 
       if (desde) {
         params.push(desde);
-        whereConditions.push(`DATE(cs.fecha_apertura) >= $${params.length}`);
+        whereConditions.push(`DATE(cs.fecha_apertura AT TIME ZONE 'America/Santiago') >= $${params.length}`);
       }
 
       if (hasta) {
         params.push(hasta);
-        whereConditions.push(`DATE(cs.fecha_apertura) <= $${params.length}`);
+        whereConditions.push(`DATE(cs.fecha_apertura AT TIME ZONE 'America/Santiago') <= $${params.length}`);
       }
 
       const whereClause = whereConditions.join(' AND ');
@@ -358,6 +389,7 @@ export const adminController = {
           cs.monto_inicial, cs.fecha_cierre, cs.monto_esperado_efectivo, cs.monto_real_efectivo,
           cs.diferencia, cs.total_ventas_efectivo, cs.total_ventas_debito, cs.total_ventas_credito,
           cs.total_ventas_transferencia, cs.total_ingresos_extra, cs.total_egresos_extra,
+          (COALESCE(cs.total_ventas_efectivo, 0) + COALESCE(cs.total_ventas_debito, 0) + COALESCE(cs.total_ventas_credito, 0) + COALESCE(cs.total_ventas_transferencia, 0)) as total_ventas,
           cs.estado, cs.observaciones
         FROM caja_sesiones cs
         WHERE ${whereClause}
@@ -389,17 +421,27 @@ export const adminController = {
         return res.status(400).json({ success: false, message: 'ID de sesión de caja inválido' });
       }
 
-      const movsRes = await query(`
-        SELECT 
-          cm.id, cm.sqlite_id, cm.caja_sesion_id, cm.tipo, cm.monto, cm.concepto,
-          cm.fecha, cm.usuario_id, cm.usuario_nombre
-        FROM caja_movimientos cm
-        WHERE cm.caja_sesion_id = $1
-        ORDER BY cm.fecha ASC, cm.id ASC
-      `, [sesionId]);
+      const [sesionRes, movsRes] = await Promise.all([
+        query(`
+          SELECT 
+            cs.*,
+            (COALESCE(cs.total_ventas_efectivo, 0) + COALESCE(cs.total_ventas_debito, 0) + COALESCE(cs.total_ventas_credito, 0) + COALESCE(cs.total_ventas_transferencia, 0)) as total_ventas
+          FROM caja_sesiones cs WHERE cs.id = $1 LIMIT 1
+        `, [sesionId]),
+        query(`
+          SELECT 
+            cm.id, cm.sqlite_id, cm.caja_sesion_id, cm.tipo, cm.monto, cm.concepto, cm.concepto as motivo,
+            cm.fecha, cm.usuario_id, cm.usuario_nombre
+          FROM caja_movimientos cm
+          WHERE cm.caja_sesion_id = $1
+          ORDER BY cm.fecha ASC, cm.id ASC
+        `, [sesionId]),
+      ]);
 
       return res.json({
         success: true,
+        sesion: sesionRes.rows[0] || null,
+        movimientos: movsRes.rows,
         data: movsRes.rows,
       });
     } catch (error) {

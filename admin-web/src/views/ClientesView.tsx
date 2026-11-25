@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Search, Users, Eye, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { adminApi } from "../services/api";
 
@@ -52,15 +52,15 @@ export const ClientesView: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: "28px 32px", display: "flex", flexDirection: "column", gap: "24px" }}>
+    <div className="page-container">
       {/* Search Bar */}
-      <div className="glass-card" style={{ padding: "20px 24px" }}>
+      <div className="glass-card" style={{ padding: "18px 20px" }}>
         <form
           onSubmit={handleSearch}
           style={{
             display: "grid",
             gridTemplateColumns: "1fr auto",
-            gap: "14px",
+            gap: "12px",
             alignItems: "end",
           }}
         >
@@ -69,7 +69,7 @@ export const ClientesView: React.FC = () => {
               Buscar por Nombre, RUT o Teléfono
             </label>
             <div style={{ position: "relative" }}>
-              <Search size={16} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "12px" }} />
+              <Search size={16} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "13px" }} />
               <input
                 type="text"
                 className="form-control"
@@ -81,21 +81,21 @@ export const ClientesView: React.FC = () => {
             </div>
           </div>
 
-          <button type="submit" className="btn btn-primary" style={{ height: "42px" }}>
+          <button type="submit" className="btn btn-primary" style={{ minWidth: "110px" }}>
             <Search size={16} />
-            <span>Buscar Clientes</span>
+            <span>Buscar</span>
           </button>
         </form>
       </div>
 
-      {/* Clients Table */}
-      <div className="glass-card" style={{ padding: "24px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+      {/* Clientes Table */}
+      <div className="glass-card" style={{ padding: "20px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "8px" }}>
           <div>
-            <h3 style={{ fontSize: "17px", fontWeight: "700", color: "#f8fafc" }}>
-              Directorio de Clientes & Líneas de Crédito (Fiados)
+            <h3 style={{ fontSize: "16px", fontWeight: "700", color: "#f8fafc" }}>
+              Cartera de Clientes & Cuentas Fiadas
             </h3>
-            <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
               Total: {paginacion.total} clientes registrados
             </span>
           </div>
@@ -105,20 +105,20 @@ export const ClientesView: React.FC = () => {
           <table className="table">
             <thead>
               <tr>
+                <th>Nombre</th>
                 <th>RUT</th>
-                <th>Nombre del Cliente</th>
-                <th>Contacto</th>
+                <th>Teléfono</th>
                 <th>Límite Crédito</th>
                 <th>Saldo Deudor</th>
-                <th>Estado Cuenta</th>
-                <th>Ficha / Movimientos</th>
+                <th>Estado Fiado</th>
+                <th>Acción</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
-                    Cargando directorio de clientes...
+                    Cargando clientes desde PostgreSQL Neon...
                   </td>
                 </tr>
               ) : clientes.length === 0 ? (
@@ -129,28 +129,25 @@ export const ClientesView: React.FC = () => {
                 </tr>
               ) : (
                 clientes.map((c) => {
-                  const saldo = Number(c.saldo_deudor || c.saldo_actual) || 0;
-                  const limite = Number(c.limite_credito) || 0;
-                  const hasDebt = saldo > 0;
-
+                  const tieneDeuda = (c.saldo_deudor || 0) > 0;
                   return (
                     <tr key={c.id || c.rut}>
-                      <td style={{ fontFamily: "monospace", fontSize: "13px", color: "var(--text-muted)" }}>
-                        {c.rut || "S/R"}
-                      </td>
                       <td style={{ fontWeight: "600", color: "#f8fafc" }}>{c.nombre}</td>
-                      <td style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-                        {c.telefono || c.email || "Sin contacto"}
+                      <td style={{ fontSize: "12px", color: "var(--text-secondary)", fontFamily: "monospace" }}>
+                        {c.rut || "-"}
                       </td>
-                      <td style={{ color: "var(--text-secondary)" }}>{formatMoney(limite)}</td>
-                      <td style={{ fontWeight: "700", color: hasDebt ? "#fb7185" : "#34d399" }}>
-                        {formatMoney(saldo)}
+                      <td style={{ fontSize: "12px", color: "var(--text-secondary)" }}>{c.telefono || "-"}</td>
+                      <td style={{ color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                        {formatMoney(c.limite_credito)}
+                      </td>
+                      <td style={{ fontWeight: "700", color: tieneDeuda ? "#fb7185" : "#34d399", whiteSpace: "nowrap" }}>
+                        {formatMoney(c.saldo_deudor)}
                       </td>
                       <td>
-                        {hasDebt ? (
-                          <span className="badge badge-danger">Con Deuda</span>
+                        {(c.permite_credito ?? (Number(c.limite_credito || 0) > 0 || c.activo !== false)) ? (
+                          <span className="badge badge-success">Habilitado</span>
                         ) : (
-                          <span className="badge badge-success">Al Día</span>
+                          <span className="badge badge-danger">Bloqueado</span>
                         )}
                       </td>
                       <td>
@@ -158,9 +155,9 @@ export const ClientesView: React.FC = () => {
                           onClick={() => openClienteFicha(c.id || c.sqlite_id)}
                           className="btn btn-secondary btn-sm"
                           title="Ver Cuenta Corriente"
+                          style={{ padding: "6px 10px" }}
                         >
                           <Eye size={14} />
-                          <span>Ver Ficha</span>
                         </button>
                       </td>
                     </tr>
@@ -178,12 +175,14 @@ export const ClientesView: React.FC = () => {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              marginTop: "20px",
-              paddingTop: "16px",
+              marginTop: "16px",
+              paddingTop: "14px",
               borderTop: "1px solid var(--border-subtle)",
+              flexWrap: "wrap",
+              gap: "10px",
             }}
           >
-            <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+            <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
               Página {paginacion.page} de {paginacion.totalPages}
             </span>
             <div style={{ display: "flex", gap: "8px" }}>
@@ -193,14 +192,14 @@ export const ClientesView: React.FC = () => {
                 className="btn btn-secondary btn-sm"
               >
                 <ChevronLeft size={16} />
-                Anterior
+                <span>Anterior</span>
               </button>
               <button
                 disabled={paginacion.page >= paginacion.totalPages}
                 onClick={() => fetchClientes(paginacion.page + 1)}
                 className="btn btn-secondary btn-sm"
               >
-                Siguiente
+                <span>Siguiente</span>
                 <ChevronRight size={16} />
               </button>
             </div>
@@ -208,134 +207,116 @@ export const ClientesView: React.FC = () => {
         )}
       </div>
 
-      {/* Modal Ficha y Cuenta Corriente de Cliente */}
+      {/* Modal Cuenta Corriente & Movimientos (Responsive Bottom Sheet) */}
       {selectedCliente && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.75)",
-            backdropFilter: "blur(6px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 100,
-            padding: "20px",
-          }}
-          onClick={() => setSelectedCliente(null)}
-        >
-          <div
-            className="glass-card"
-            style={{
-              width: "100%",
-              maxWidth: "640px",
-              backgroundColor: "#11201b",
-              padding: "28px",
-              borderRadius: "var(--radius-xl)",
-              maxHeight: "90vh",
-              overflowY: "auto",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="modal-overlay" onClick={() => setSelectedCliente(null)}>
+          <div className="modal-content" style={{ padding: "24px" }} onClick={(e) => e.stopPropagation()}>
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                paddingBottom: "16px",
+                paddingBottom: "14px",
                 borderBottom: "1px solid var(--border-subtle)",
-                marginBottom: "20px",
+                marginBottom: "16px",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <Users size={24} color="#10b981" />
+                <Users size={22} color="#10b981" />
                 <div>
-                  <h3 style={{ fontSize: "18px", fontWeight: "700", color: "#f8fafc" }}>
-                    {selectedCliente.cliente.nombre}
+                  <h3 style={{ fontSize: "17px", fontWeight: "700", color: "#f8fafc" }}>
+                    {selectedCliente.cliente?.nombre}
                   </h3>
-                  <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                    RUT: {selectedCliente.cliente.rut || "No registrado"} • Tel: {selectedCliente.cliente.telefono || "N/A"}
+                  <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                    RUT: {selectedCliente.cliente?.rut || "Sin RUT"} • Tel: {selectedCliente.cliente?.telefono || "N/A"}
                   </span>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedCliente(null)}
-                style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+                style={{
+                  background: "rgba(255, 255, 255, 0.06)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "8px",
+                  color: "var(--text-secondary)",
+                  cursor: "pointer",
+                  padding: "6px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
+            {/* Saldo summary */}
             <div
               style={{
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr",
-                gap: "12px",
+                gap: "10px",
+                padding: "12px",
                 backgroundColor: "rgba(0,0,0,0.25)",
-                padding: "16px",
                 borderRadius: "var(--radius-md)",
-                marginBottom: "20px",
+                marginBottom: "16px",
               }}
             >
               <div>
-                <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Saldo Deudor Actual</div>
-                <div style={{ fontSize: "22px", fontWeight: "800", color: (selectedCliente.cliente.saldo_deudor || 0) > 0 ? "#fb7185" : "#34d399" }}>
-                  {formatMoney(selectedCliente.cliente.saldo_deudor || selectedCliente.cliente.saldo_actual)}
+                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>Saldo Deuda Actual:</span>
+                <div style={{ fontSize: "20px", fontWeight: "800", color: "#fb7185" }}>
+                  {formatMoney(selectedCliente.cliente?.saldo_deudor)}
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Límite Autorizado</div>
-                <div style={{ fontSize: "22px", fontWeight: "800", color: "#f8fafc" }}>
-                  {formatMoney(selectedCliente.cliente.limite_credito)}
+                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>Límite de Crédito:</span>
+                <div style={{ fontSize: "18px", fontWeight: "700", color: "var(--text-secondary)" }}>
+                  {formatMoney(selectedCliente.cliente?.limite_credito)}
                 </div>
               </div>
             </div>
 
-            <h4 style={{ fontSize: "14px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "12px" }}>
-              Historial de Compras al Fiado y Abonos
+            <h4 style={{ fontSize: "13px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "8px" }}>
+              Movimientos (Cargos y Abonos)
             </h4>
-            <div className="table-responsive">
-              <table className="table" style={{ fontSize: "13px" }}>
+            <div className="table-responsive" style={{ marginBottom: "16px" }}>
+              <table className="table" style={{ fontSize: "12px", minWidth: "360px" }}>
                 <thead>
                   <tr>
                     <th>Fecha</th>
-                    <th>Tipo Movimiento</th>
-                    <th>Descripción</th>
+                    <th>Tipo</th>
                     <th style={{ textAlign: "right" }}>Monto</th>
-                    <th style={{ textAlign: "right" }}>Saldo</th>
+                    <th style={{ textAlign: "right" }}>Saldo Result.</th>
                   </tr>
                 </thead>
                 <tbody>
                   {selectedCliente.movimientos && selectedCliente.movimientos.length > 0 ? (
                     selectedCliente.movimientos.map((m: any, idx: number) => {
-                      const isCargo = m.tipo === "cargo" || m.tipo === "venta";
+                      const rawTipo = String(m.tipo_movimiento || m.tipo || "").toUpperCase();
+                      const esCargo = rawTipo === "CARGO" || rawTipo === "VENTA" || rawTipo === "VENTA_FIADA";
                       return (
                         <tr key={idx}>
-                          <td style={{ color: "var(--text-secondary)" }}>
-                            {new Date(m.fecha || m.creado_en).toLocaleDateString("es-CL")}
+                          <td style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                            {new Date(m.fecha || m.creado_en).toLocaleDateString("es-CL", { timeZone: "America/Santiago" })}
                           </td>
                           <td>
-                            <span className={`badge ${isCargo ? "badge-danger" : "badge-success"}`}>
-                              {isCargo ? "Cargo (+)" : "Abono (-)"}
+                            <span className={`badge ${esCargo ? "badge-danger" : "badge-success"}`}>
+                              {m.tipo_movimiento || m.tipo}
                             </span>
                           </td>
-                          <td style={{ color: "var(--text-primary)" }}>{m.descripcion || "Transacción"}</td>
-                          <td style={{ textAlign: "right", fontWeight: "700", color: isCargo ? "#fb7185" : "#34d399" }}>
-                            {formatMoney(m.monto)}
+                          <td style={{ textAlign: "right", fontWeight: "700", color: esCargo ? "#fb7185" : "#34d399" }}>
+                            {esCargo ? `+${formatMoney(m.monto)}` : `-${formatMoney(m.monto)}`}
                           </td>
-                          <td style={{ textAlign: "right", color: "var(--text-muted)" }}>
-                            {formatMoney(m.saldo_posterior)}
+                          <td style={{ textAlign: "right", color: "#f8fafc" }}>
+                            {formatMoney(m.saldo_resultante ?? m.saldo_posterior ?? m.saldo)}
                           </td>
                         </tr>
                       );
                     })
                   ) : (
                     <tr>
-                      <td colSpan={5} style={{ textAlign: "center", padding: "20px", color: "var(--text-muted)" }}>
-                        No hay movimientos registrados en la cuenta corriente.
+                      <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)" }}>
+                        No hay movimientos registrados en la réplica remota.
                       </td>
                     </tr>
                   )}
@@ -343,9 +324,9 @@ export const ClientesView: React.FC = () => {
               </table>
             </div>
 
-            <div style={{ marginTop: "24px", display: "flex", justifyContent: "flex-end" }}>
-              <button onClick={() => setSelectedCliente(null)} className="btn btn-secondary">
-                Cerrar Ficha
+            <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setSelectedCliente(null)} className="btn btn-secondary btn-sm" style={{ width: "100%" }}>
+                Cerrar
               </button>
             </div>
           </div>

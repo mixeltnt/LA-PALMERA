@@ -1,11 +1,14 @@
 #![windows_subsystem = "windows"]
 
 use std::fs;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     MessageBoxW, MB_ICONINFORMATION, MB_ICONQUESTION, MB_OK, MB_YESNO, IDYES,
 };
+
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 static EXE_BYTES: &[u8] = include_bytes!("../../release/LaPalmera.exe");
 static DLL_BYTES: &[u8] = include_bytes!("../../release/WebView2Loader.dll");
@@ -13,6 +16,7 @@ static ICO_BYTES: &[u8] = include_bytes!("../../release/icon.ico");
 static DB_BYTES: &[u8] = include_bytes!("../../release/database/lapalmera.db");
 
 const DESINSTALAR_PS1: &str = r#"
+Add-Type -AssemblyName System.Windows.Forms
 # Script de desinstalacion de La Palmera POS
 $appName = "LaPalmera"
 $installDir = "$env:LOCALAPPDATA\Programs\LaPalmera"
@@ -81,6 +85,7 @@ fn main() {
     // 1. Cerrar instancias previas si están abiertas
     let _ = Command::new("taskkill")
         .args(["/F", "/IM", "LaPalmera.exe"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     let install_dir = get_install_dir();
@@ -117,17 +122,36 @@ fn main() {
 
     // 4. Asegurar carpetas persistentes de datos en C:\LaPalmera (Sin sobreescribir datos)
     let base_data = Path::new("C:\\LaPalmera");
-    let _ = fs::create_dir_all(base_data.join("database"));
-    let _ = fs::create_dir_all(base_data.join("backups"));
-    let _ = fs::create_dir_all(base_data.join("images"));
-    let _ = fs::create_dir_all(base_data.join("exports"));
-    let _ = fs::create_dir_all(base_data.join("config"));
+    for sub in ["database", "backups", "images", "exports", "config"] {
+        if let Err(e) = fs::create_dir_all(base_data.join(sub)) {
+            show_message(
+                &format!("Error al crear la carpeta de datos C:\\LaPalmera\\{}:\n{}", sub, e),
+                "Error de Instalación",
+                false,
+            );
+            return;
+        }
+    }
 
     // Inicializar base de datos plantilla en PC nuevo si no existe previamente
     let target_db = base_data.join("database").join("lapalmera.db");
     if !target_db.exists() {
-        let _ = fs::write(&target_db, DB_BYTES);
+        if let Err(e) = fs::write(&target_db, DB_BYTES) {
+            show_message(
+                &format!("Error al inicializar la base de datos en C:\\LaPalmera\\database:\n{}", e),
+                "Error de Instalación",
+                false,
+            );
+            return;
+        }
     }
+
+    // Otorgar permisos de lectura/escritura/modificación a Usuarios estándar sobre C:\LaPalmera
+    // para evitar SQLITE_READONLY cuando LaPalmera.exe se ejecuta sin elevación UAC
+    let _ = Command::new("icacls")
+        .args(["C:\\LaPalmera", "/grant", "*S-1-5-32-545:(OI)(CI)M", "/T", "/C", "/Q"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
 
     // 5. Crear accesos directos y registrar desinstalador en Windows mediante PowerShell
     let ps_script = format!(
@@ -158,7 +182,7 @@ $shortcutStart.Save()
 $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\LaPalmera"
 New-Item -Path $regPath -Force | Out-Null
 Set-ItemProperty -Path $regPath -Name "DisplayName" -Value "La Palmera - Sistema POS"
-Set-ItemProperty -Path $regPath -Name "DisplayVersion" -Value "19.0.0"
+Set-ItemProperty -Path $regPath -Name "DisplayVersion" -Value "32.0.0"
 Set-ItemProperty -Path $regPath -Name "Publisher" -Value "La Palmera"
 Set-ItemProperty -Path $regPath -Name "DisplayIcon" -Value "{}"
 Set-ItemProperty -Path $regPath -Name "UninstallString" -Value "powershell.exe -ExecutionPolicy Bypass -File ""{}"""
@@ -177,6 +201,7 @@ Set-ItemProperty -Path $regPath -Name "InstallLocation" -Value "{}"
 
     let _ = Command::new("powershell")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps_script])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     // 6. Mensaje final interactivo

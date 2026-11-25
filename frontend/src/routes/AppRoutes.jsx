@@ -8,6 +8,7 @@ import Productos from "../pages/Productos/Productos";
 import Categorias from "../pages/Categorias/Categorias";
 import Ventas from "../pages/Ventas/Ventas";
 import HistorialVentas from "../pages/Ventas/HistorialVentas";
+import Caja from "../pages/Caja/Caja";
 import Compras from "../pages/Compras/Compras";
 import Clientes from "../pages/Clientes/Clientes";
 import Proveedores from "../pages/Proveedores/Proveedores";
@@ -25,7 +26,7 @@ function AppRoutes() {
           <Route path="/" element={<Navigate to="/ventas" replace />} />
           <Route
             element={
-              <ProtectedRoute roles={["admin", "encargada"]}>
+              <ProtectedRoute roles={["admin", "encargada", "supervisor"]}>
                 <Outlet />
               </ProtectedRoute>
             }
@@ -51,6 +52,7 @@ function AppRoutes() {
             <Route path="/configuracion" element={<Configuracion />} />
           </Route>
           <Route path="/ventas" element={<Ventas />} />
+          <Route path="/caja" element={<Caja />} />
         </Route>
       </Route>
 

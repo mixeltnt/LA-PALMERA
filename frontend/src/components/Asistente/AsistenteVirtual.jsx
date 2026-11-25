@@ -1,6 +1,41 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "./AsistenteVirtual.css";
+
+const PALMI_POS_KEY = "lapalmera-palmi-pos";
+const BTN_SIZE = 56;
+
+function getDefaultPalmiPos() {
+  if (typeof window === "undefined") return { x: 256, y: 600 };
+  const isDesktop = window.innerWidth >= 992;
+  return {
+    x: isDesktop ? 256 : 16,
+    y: Math.max(80, window.innerHeight - BTN_SIZE - 18),
+  };
+}
+
+function clampPalmiPos(x, y) {
+  if (typeof window === "undefined") return { x, y };
+  const maxX = Math.max(8, window.innerWidth - BTN_SIZE - 12);
+  const maxY = Math.max(64, window.innerHeight - BTN_SIZE - 12);
+  return {
+    x: Math.min(Math.max(8, x), maxX),
+    y: Math.min(Math.max(64, y), maxY),
+  };
+}
+
+function loadSavedPalmiPos() {
+  try {
+    const raw = localStorage.getItem(PALMI_POS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.x === "number" && typeof parsed?.y === "number") {
+        return clampPalmiPos(parsed.x, parsed.y);
+      }
+    }
+  } catch {}
+  return clampPalmiPos(getDefaultPalmiPos().x, getDefaultPalmiPos().y);
+}
 
 const CATEGORIAS = [
   { id: "todas", label: "Todos los Módulos", icono: "bi-grid-fill" },
@@ -219,8 +254,72 @@ export const AsistenteVirtual = () => {
   const [abierto, setAbierto] = useState(false);
   const [guiaActiva, setGuiaActiva] = useState(null);
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState("todas");
-  const [isHovered, setIsHovered] = useState(false);
+  const [pos, setPos] = useState(loadSavedPalmiPos);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef({ active: false, moved: false, startX: 0, startY: 0, origX: 0, origY: 0 });
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleResize = () => {
+      setPos((prev) => clampPalmiPos(prev.x, prev.y));
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const handlePointerDown = (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    dragRef.current = {
+      active: true,
+      moved: false,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: pos.x,
+      origY: pos.y,
+    };
+
+    const onMove = (ev) => {
+      if (!dragRef.current.active) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      if (!dragRef.current.moved && Math.hypot(dx, dy) > 5) {
+        dragRef.current.moved = true;
+        setIsDragging(true);
+      }
+      if (dragRef.current.moved) {
+        const next = clampPalmiPos(dragRef.current.origX + dx, dragRef.current.origY + dy);
+        setPos(next);
+      }
+    };
+
+    const onUp = (ev) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (dragRef.current.moved) {
+        const dx = ev.clientX - dragRef.current.startX;
+        const dy = ev.clientY - dragRef.current.startY;
+        const finalPos = clampPalmiPos(dragRef.current.origX + dx, dragRef.current.origY + dy);
+        setPos(finalPos);
+        try {
+          localStorage.setItem(PALMI_POS_KEY, JSON.stringify(finalPos));
+        } catch {}
+        setTimeout(() => setIsDragging(false), 60);
+      } else {
+        setIsDragging(false);
+      }
+      dragRef.current.active = false;
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+
+  const handleToggleClick = () => {
+    if (dragRef.current.moved || isDragging) return;
+    setAbierto((prev) => !prev);
+  };
 
   const guiasFiltradas = GUIAS.filter((g) => {
     if (categoriaSeleccionada === "todas") return true;
@@ -235,29 +334,32 @@ export const AsistenteVirtual = () => {
 
   return (
     <>
-      {/* Zona de Detección en la Esquina (Aparece suavemente al pasar el ratón) */}
+      {/* Botón flotante compacto y arrastrable de Palmi (no bloquea las acciones de tablas) */}
       <div
-        className={`lp-palmi-corner-hotspot ${isHovered || abierto ? "lp-active" : ""}`}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
+        className={`lp-palmi-floating-dock ${isDragging ? "lp-dragging" : ""}`}
+        style={{ left: `${pos.x}px`, top: `${pos.y}px` }}
       >
         <button
           type="button"
-          className={`btn lp-palmi-trigger-btn ${isHovered || abierto ? "lp-visible" : "lp-hidden"}`}
-          onClick={() => setAbierto(!abierto)}
-          title="Palmi 🐶 — Manual e Instrucciones del Sistema"
+          className={`btn lp-palmi-trigger-btn ${abierto ? "lp-open" : ""}`}
+          onPointerDown={handlePointerDown}
+          onClick={handleToggleClick}
+          title="Palmi 🐶 — Clic para abrir ayuda • Arrastra para moverlo donde quieras"
           aria-label="Abrir manual de instrucciones"
         >
           {abierto ? (
             <div className="lp-palmi-close-btn">✕</div>
           ) : (
             <div className="lp-palmi-btn-content">
-              <img
-                src="/palmi.png"
-                alt="Palmi"
-                className="lp-palmi-btn-img"
-              />
-              <span className="lp-palmi-badge-tag">Ayuda 📖</span>
+              <div className="lp-palmi-avatar-ring">
+                <img
+                  src="/palmi.png"
+                  alt="Palmi"
+                  className="lp-palmi-btn-img"
+                  draggable={false}
+                />
+              </div>
+              <span className="lp-palmi-badge-tag">Ayuda</span>
             </div>
           )}
         </button>
@@ -265,9 +367,9 @@ export const AsistenteVirtual = () => {
 
       {/* Ventana Modal / Panel de Instrucciones */}
       {abierto && (
-        <div className="position-fixed card shadow-lg border-0 rounded-4 lp-palmi-modal">
+        <div className="position-fixed card shadow-lg border-0 rounded-4 lp-palmi-modal lp-asistente-modal">
           {/* Header del Asistente */}
-          <div className="bg-success text-white p-3 d-flex align-items-center justify-content-between">
+          <div className="bg-success text-white p-3 d-flex align-items-center justify-content-between lp-asistente-header">
             <div className="d-flex align-items-center gap-2">
               <div className="rounded-circle d-flex align-items-center justify-content-center overflow-hidden lp-palmi-modal-avatar">
                 <img
@@ -278,7 +380,7 @@ export const AsistenteVirtual = () => {
               </div>
               <div>
                 <h6 className="mb-0 fw-bold d-flex align-items-center gap-1">
-                  Palmi 🌴🐾 <span className="badge bg-white text-success fs-7 ms-1">v22</span>
+                  Palmi 🌴🐾 <span className="badge bg-white text-success fs-7 ms-1">v32</span>
                 </h6>
                 <small className="text-white-50" style={{ fontSize: "0.76rem" }}>
                   Manual e Instrucciones de Uso del Sistema

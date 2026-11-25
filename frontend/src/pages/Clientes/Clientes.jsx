@@ -59,40 +59,6 @@ function Clientes() {
 
   const [toast, setToast] = useState(null);
 
-  // Estado para arrastrar y mover libremente la ventana modal
-  const [modalPos, setModalPos] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-
-  const handleMouseDown = (e) => {
-    if (e.target.closest("button") || e.target.closest("input") || e.target.closest("select")) return;
-    setIsDragging(true);
-    setDragStart({
-      x: e.clientX - modalPos.x,
-      y: e.clientY - modalPos.y,
-    });
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (!isDragging) return;
-      setModalPos({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y,
-      });
-    };
-    const handleMouseUp = () => setIsDragging(false);
-
-    if (isDragging) {
-      window.addEventListener("mousemove", handleMouseMove);
-      window.addEventListener("mouseup", handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isDragging, dragStart]);
-
   const buildParams = useCallback(() => {
     const params = { page, limit: 10 };
     if (search) params.search = search;
@@ -153,7 +119,6 @@ function Clientes() {
     setEditing(null);
     setForm(emptyForm);
     setError("");
-    setModalPos({ x: 0, y: 0 });
     setShowModal(true);
   };
 
@@ -165,14 +130,13 @@ function Clientes() {
       telefono: cliente.telefono || "",
       email: cliente.email || "",
       direccion: cliente.direccion || "",
-      comuna: cliente.comuna || "",
+      comuna: cliente.comuna || cliente.ciudad || "",
       observaciones: cliente.observaciones || "",
       limiteFiado:
-        cliente.limiteFiado != null ? String(cliente.limiteFiado) : "0",
+        cliente.limiteFiado != null ? String(cliente.limiteFiado) : (cliente.limiteCredito != null ? String(cliente.limiteCredito) : "0"),
       activo: cliente.activo !== undefined ? cliente.activo : true,
     });
     setError("");
-    setModalPos({ x: 0, y: 0 });
     setShowModal(true);
   };
 
@@ -633,30 +597,17 @@ function Clientes() {
         <div
           className="modal d-block"
           tabIndex={-1}
-          style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
         >
-          <div
-            className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable shadow-lg"
-            style={{
-              transform: `translate(${modalPos.x}px, ${modalPos.y}px)`,
-              transition: isDragging ? "none" : "transform 0.1s ease",
-            }}
-          >
-            <div className="modal-content shadow border-0" style={{ maxHeight: "88vh" }}>
-              <div
-                className="modal-header bg-light border-bottom py-2"
-                onMouseDown={handleMouseDown}
-                style={{ cursor: isDragging ? "grabbing" : "grab", userSelect: "none" }}
-              >
-                <h5 className="modal-title fw-bold text-dark mb-0">
+          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div className="modal-content shadow border-0">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold mb-0">
                   <i
                     className={`bi ${editing ? "bi-pencil" : "bi-person-plus"} me-2 text-success`}
                   ></i>
                   {editing ? "Editar Cliente" : "Nuevo Cliente"}
                 </h5>
-                <span className="badge bg-secondary-subtle text-secondary ms-2 small d-none d-sm-inline py-1">
-                  <i className="bi bi-arrows-move me-1"></i>Mover ventana
-                </span>
                 <button
                   type="button"
                   className="btn-close ms-auto"
@@ -887,32 +838,19 @@ function Clientes() {
           tabIndex={-1}
           style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
         >
-          <div
-            className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable shadow-lg"
-            style={{
-              transform: `translate(${modalPos.x}px, ${modalPos.y}px)`,
-              transition: isDragging ? "none" : "transform 0.1s ease",
-            }}
-          >
-            <div className="modal-content shadow border-0" style={{ maxHeight: "88vh" }}>
-              <div
-                className="modal-header bg-light border-bottom py-2"
-                onMouseDown={handleMouseDown}
-                style={{ cursor: isDragging ? "grabbing" : "grab", userSelect: "none" }}
-              >
-                <h5 className="modal-title fw-bold text-dark mb-0">
+          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div className="modal-content shadow border-0">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold mb-0">
                   <i className="bi bi-wallet2 me-2 text-primary"></i>Cuenta del cliente
                 </h5>
-                <span className="badge bg-secondary-subtle text-secondary ms-2 small d-none d-sm-inline py-1">
-                  <i className="bi bi-arrows-move me-1"></i>Mover ventana
-                </span>
                 <button
                   type="button"
                   className="btn-close ms-auto"
                   onClick={() => setShowCuenta(false)}
                 ></button>
               </div>
-              <div className="modal-body" style={{ maxHeight: "72vh", overflowY: "auto" }}>
+              <div className="modal-body">
                 <div className="d-flex justify-content-between align-items-start mb-3">
                   <div>
                     <div className="fw-semibold fs-5">{cuentaCliente.nombre}</div>

@@ -1,4 +1,4 @@
-﻿import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { adminApi, getAuthToken, setAuthToken, getSavedUser, setSavedUser } from "../services/api";
 
 export interface User {
@@ -24,6 +24,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(getAuthToken());
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  const logout = useCallback(() => {
+    setToken(null);
+    setUser(null);
+    setAuthToken(null);
+    setSavedUser(null);
+  }, []);
+
   useEffect(() => {
     async function checkAuth() {
       const storedToken = getAuthToken();
@@ -45,9 +52,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     checkAuth();
-  }, []);
+  }, [logout]);
 
-  const login = async (u: string, p: string) => {
+  const login = useCallback(async (u: string, p: string) => {
     const res = await adminApi.login(u, p);
     if (res.token) {
       setToken(res.token);
@@ -55,14 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(res.usuario);
       setSavedUser(res.usuario);
     }
-  };
-
-  const logout = () => {
-    setToken(null);
-    setUser(null);
-    setAuthToken(null);
-    setSavedUser(null);
-  };
+  }, []);
 
   return (
     <AuthContext.Provider

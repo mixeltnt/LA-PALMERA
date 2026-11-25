@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Search,
   Filter,
@@ -6,7 +6,9 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Receipt
+  Receipt,
+  Package,
+  RotateCcw
 } from "lucide-react";
 import { adminApi } from "../services/api";
 
@@ -26,6 +28,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
   const [desde, setDesde] = useState<string>("");
   const [hasta, setHasta] = useState<string>("");
   const [metodoPago, setMetodoPago] = useState<string>("");
+  const [modalError, setModalError] = useState<string | null>(null);
 
   // Modal State
   const [selectedVenta, setSelectedVenta] = useState<any | null>(null);
@@ -51,12 +54,20 @@ export const VentasView: React.FC<VentasViewProps> = ({
   };
 
   const openVentaDetalle = async (id: string | number) => {
+    setModalError(null);
     try {
       const res = await adminApi.getVentaDetalle(id);
       setSelectedVenta(res);
-    } catch {
-      alert("No se pudo cargar el detalle de la venta.");
+    } catch (err: any) {
+      setModalError(err?.message || "No se pudo cargar el detalle de la venta.");
     }
+  };
+
+  const handleResetFilters = () => {
+    setSearch("");
+    setDesde("");
+    setHasta("");
+    setMetodoPago("");
   };
 
   useEffect(() => {
@@ -81,32 +92,65 @@ export const VentasView: React.FC<VentasViewProps> = ({
   };
 
   return (
-    <div style={{ padding: "28px 32px", display: "flex", flexDirection: "column", gap: "24px" }}>
-      {/* Filters Bar */}
-      <div className="glass-card" style={{ padding: "20px 24px" }}>
-        <form
-          onSubmit={handleSearchSubmit}
+    <div className="page-container">
+      {modalError && (
+        <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "2fr 1fr 1fr 1fr auto",
-            gap: "14px",
-            alignItems: "end",
+            padding: "12px 16px",
+            borderRadius: "var(--radius-md)",
+            background: "rgba(244, 63, 94, 0.15)",
+            border: "1px solid rgba(244, 63, 94, 0.3)",
+            color: "#fb7185",
+            fontSize: "13px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
           }}
         >
+          <span>{modalError}</span>
+          <button
+            onClick={() => setModalError(null)}
+            style={{ background: "transparent", border: "none", color: "#fb7185", cursor: "pointer" }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      {/* Filters Bar */}
+      <div className="glass-card" style={{ padding: "18px 20px" }}>
+        <form onSubmit={handleSearchSubmit} className="filter-grid">
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "6px" }}>
               Buscar por Folio o Cliente
             </label>
             <div style={{ position: "relative" }}>
-              <Search size={16} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "12px" }} />
+              <Search size={16} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "13px" }} />
               <input
                 type="text"
                 className="form-control"
-                style={{ paddingLeft: "36px" }}
+                style={{ paddingLeft: "36px", paddingRight: search ? "32px" : "12px" }}
                 placeholder="Ej. 1004, Yasna..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  style={{
+                    position: "absolute",
+                    right: "10px",
+                    top: "12px",
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -152,22 +196,35 @@ export const VentasView: React.FC<VentasViewProps> = ({
             </select>
           </div>
 
-          <button type="submit" className="btn btn-primary" style={{ height: "42px" }}>
-            <Filter size={16} />
-            <span>Filtrar</span>
-          </button>
+          <div style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
+            <button type="submit" className="btn btn-primary" style={{ flex: 1, minWidth: "90px" }}>
+              <Filter size={16} />
+              <span>Filtrar</span>
+            </button>
+            {(search || desde || hasta || metodoPago) && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="btn btn-secondary"
+                title="Limpiar filtros"
+                style={{ padding: "10px" }}
+              >
+                <RotateCcw size={16} />
+              </button>
+            )}
+          </div>
         </form>
       </div>
 
       {/* Ventas Table */}
-      <div className="glass-card" style={{ padding: "24px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+      <div className="glass-card" style={{ padding: "20px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "8px" }}>
           <div>
-            <h3 style={{ fontSize: "17px", fontWeight: "700", color: "#f8fafc" }}>
+            <h3 style={{ fontSize: "16px", fontWeight: "700", color: "#f8fafc" }}>
               Registro de Ventas Sincronizadas
             </h3>
-            <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-              Total: {paginacion.total} transacciones
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+              Total: {paginacion.total} transacciones en Neon Cloud
             </span>
           </div>
         </div>
@@ -205,8 +262,9 @@ export const VentasView: React.FC<VentasViewProps> = ({
                     <td>
                       <span style={{ fontWeight: "700", color: "#34d399" }}>#{v.folio}</span>
                     </td>
-                    <td style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-                      {new Date(v.creado_en || v.fecha).toLocaleString("es-CL", {
+                    <td style={{ fontSize: "12px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                      {new Date(v.fecha || v.creado_en).toLocaleString("es-CL", {
+                        timeZone: "America/Santiago",
                         day: "2-digit",
                         month: "2-digit",
                         year: "numeric",
@@ -214,20 +272,23 @@ export const VentasView: React.FC<VentasViewProps> = ({
                         minute: "2-digit",
                       })}
                     </td>
-                    <td>{v.cliente_nombre || "Cliente Ocasional"}</td>
+                    <td style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {v.cliente_nombre || "Cliente Ocasional"}
+                    </td>
                     <td>
                       <span className="badge badge-info" style={{ textTransform: "capitalize" }}>
-                        {v.metodo_pago || "Efectivo"}
+                        {v.metodo_pago || v.metodo_pago_principal || "Efectivo"}
                       </span>
                     </td>
-                    <td style={{ color: "var(--text-secondary)" }}>{formatMoney(v.subtotal)}</td>
-                    <td style={{ color: "var(--text-muted)", fontSize: "12px" }}>{formatMoney(v.iva)}</td>
-                    <td style={{ fontWeight: "700", color: "#f8fafc" }}>{formatMoney(v.total)}</td>
+                    <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{formatMoney(v.subtotal)}</td>
+                    <td style={{ color: "var(--text-muted)", fontSize: "12px", whiteSpace: "nowrap" }}>{formatMoney(v.iva ?? v.impuesto_total)}</td>
+                    <td style={{ fontWeight: "700", color: "#f8fafc", whiteSpace: "nowrap" }}>{formatMoney(v.total)}</td>
                     <td>
                       <button
                         onClick={() => openVentaDetalle(v.id || v.sqlite_id || v.folio)}
                         className="btn btn-secondary btn-sm"
                         title="Ver Boleta"
+                        style={{ padding: "6px 10px" }}
                       >
                         <Eye size={14} />
                       </button>
@@ -246,12 +307,14 @@ export const VentasView: React.FC<VentasViewProps> = ({
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              marginTop: "20px",
-              paddingTop: "16px",
+              marginTop: "16px",
+              paddingTop: "14px",
               borderTop: "1px solid var(--border-subtle)",
+              flexWrap: "wrap",
+              gap: "10px",
             }}
           >
-            <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+            <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
               Página {paginacion.page} de {paginacion.totalPages}
             </span>
             <div style={{ display: "flex", gap: "8px" }}>
@@ -261,14 +324,14 @@ export const VentasView: React.FC<VentasViewProps> = ({
                 className="btn btn-secondary btn-sm"
               >
                 <ChevronLeft size={16} />
-                Anterior
+                <span>Anterior</span>
               </button>
               <button
                 disabled={paginacion.page >= paginacion.totalPages}
                 onClick={() => fetchVentas(paginacion.page + 1)}
                 className="btn btn-secondary btn-sm"
               >
-                Siguiente
+                <span>Siguiente</span>
                 <ChevronRight size={16} />
               </button>
             </div>
@@ -276,189 +339,236 @@ export const VentasView: React.FC<VentasViewProps> = ({
         )}
       </div>
 
-      {/* Modal Detalle de Venta */}
-      {selectedVenta && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.75)",
-            backdropFilter: "blur(6px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 100,
-            padding: "20px",
-          }}
-          onClick={() => setSelectedVenta(null)}
-        >
-          <div
-            className="glass-card"
-            style={{
-              width: "100%",
-              maxWidth: "580px",
-              backgroundColor: "#11201b",
-              padding: "28px",
-              borderRadius: "var(--radius-xl)",
-              maxHeight: "90vh",
-              overflowY: "auto",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                paddingBottom: "16px",
-                borderBottom: "1px solid var(--border-subtle)",
-                marginBottom: "20px",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <Receipt size={24} color="#10b981" />
-                <div>
-                  <h3 style={{ fontSize: "18px", fontWeight: "700", color: "#f8fafc" }}>
-                    Boleta Electrónica #{selectedVenta.venta.folio}
-                  </h3>
-                  <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                    Sincronizada en PostgreSQL Neon
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedVenta(null)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                }}
-              >
-                <X size={20} />
-              </button>
-            </div>
+      {/* Modal Detalle de Venta (Responsive Bottom Sheet / Modal) */}
+      {selectedVenta && (() => {
+        const venta = selectedVenta.venta || selectedVenta.data || selectedVenta;
+        const items = selectedVenta.items || selectedVenta.data?.items || [];
+        const dateVal = venta?.creado_en || venta?.fecha;
+        const formattedDate = dateVal ? new Date(dateVal).toLocaleString("es-CL") : "Fecha no disponible";
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "12px",
-                fontSize: "13px",
-                backgroundColor: "rgba(0,0,0,0.2)",
-                padding: "14px",
-                borderRadius: "var(--radius-md)",
-                marginBottom: "20px",
-              }}
-            >
-              <div>
-                <span style={{ color: "var(--text-muted)" }}>Fecha: </span>
-                <span style={{ color: "#f8fafc", fontWeight: "600" }}>
-                  {new Date(selectedVenta.venta.creado_en || selectedVenta.venta.fecha).toLocaleString("es-CL")}
-                </span>
-              </div>
-              <div>
-                <span style={{ color: "var(--text-muted)" }}>Cliente: </span>
-                <span style={{ color: "#f8fafc", fontWeight: "600" }}>
-                  {selectedVenta.venta.cliente_nombre || "Cliente General"}
-                </span>
-              </div>
-              <div>
-                <span style={{ color: "var(--text-muted)" }}>Método: </span>
-                <span className="badge badge-info" style={{ textTransform: "capitalize" }}>
-                  {selectedVenta.venta.metodo_pago}
-                </span>
-              </div>
-              <div>
-                <span style={{ color: "var(--text-muted)" }}>Estado: </span>
-                <span className="badge badge-success">Completada</span>
-              </div>
-            </div>
-
-            <h4 style={{ fontSize: "14px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "10px" }}>
-              Productos Vendidos
-            </h4>
-            <div className="table-responsive" style={{ marginBottom: "20px" }}>
-              <table className="table" style={{ fontSize: "13px" }}>
-                <thead>
-                  <tr>
-                    <th>Producto</th>
-                    <th style={{ textAlign: "center" }}>Cant.</th>
-                    <th style={{ textAlign: "right" }}>Precio</th>
-                    <th style={{ textAlign: "right" }}>Subtotal</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedVenta.items && selectedVenta.items.length > 0 ? (
-                    selectedVenta.items.map((it: any, idx: number) => (
-                      <tr key={idx}>
-                        <td>{it.nombre || it.producto_nombre || "Producto"}</td>
-                        <td style={{ textAlign: "center", fontWeight: "600" }}>{it.cantidad}</td>
-                        <td style={{ textAlign: "right", color: "var(--text-secondary)" }}>
-                          {formatMoney(it.precio_unitario || it.precio)}
-                        </td>
-                        <td style={{ textAlign: "right", fontWeight: "700", color: "#f8fafc" }}>
-                          {formatMoney(it.subtotal || it.cantidad * (it.precio_unitario || it.precio))}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)" }}>
-                        Sin detalle de productos desglosados.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div
-              style={{
-                borderTop: "1px solid var(--border-subtle)",
-                paddingTop: "16px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "8px",
-                fontSize: "14px",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-secondary)" }}>
-                <span>Subtotal Neto:</span>
-                <span>{formatMoney(selectedVenta.venta.subtotal)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)" }}>
-                <span>IVA (19%):</span>
-                <span>{formatMoney(selectedVenta.venta.iva)}</span>
-              </div>
+        return (
+          <div className="modal-overlay" onClick={() => setSelectedVenta(null)}>
+            <div className="modal-content" style={{ padding: "24px" }} onClick={(e) => e.stopPropagation()}>
               <div
                 style={{
                   display: "flex",
+                  alignItems: "center",
                   justifyContent: "space-between",
-                  fontSize: "18px",
-                  fontWeight: "800",
-                  color: "#34d399",
-                  borderTop: "1px dashed var(--border-subtle)",
-                  paddingTop: "10px",
-                  marginTop: "4px",
+                  paddingBottom: "14px",
+                  borderBottom: "1px solid var(--border-subtle)",
+                  marginBottom: "16px",
                 }}
               >
-                <span>Total Pagado:</span>
-                <span>{formatMoney(selectedVenta.venta.total)}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <Receipt size={22} color="#10b981" />
+                  <div>
+                    <h3 style={{ fontSize: "17px", fontWeight: "700", color: "#f8fafc" }}>
+                      Boleta #{venta?.folio || venta?.id || "---"}
+                    </h3>
+                    <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                      Sincronizada en PostgreSQL Neon
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedVenta(null)}
+                  style={{
+                    background: "rgba(255, 255, 255, 0.06)",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: "8px",
+                    color: "var(--text-secondary)",
+                    cursor: "pointer",
+                    padding: "6px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "10px",
+                  fontSize: "12px",
+                  backgroundColor: "rgba(0,0,0,0.25)",
+                  padding: "12px",
+                  borderRadius: "var(--radius-md)",
+                  marginBottom: "16px",
+                }}
+              >
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>Fecha: </span>
+                  <div style={{ color: "#f8fafc", fontWeight: "600", marginTop: "2px" }}>
+                    {formattedDate}
+                  </div>
+                </div>
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>Cliente: </span>
+                  <div style={{ color: "#f8fafc", fontWeight: "600", marginTop: "2px" }}>
+                    {venta?.cliente_nombre || "Cliente General"}
+                  </div>
+                </div>
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>Método: </span>
+                  <div>
+                    <span className="badge badge-info" style={{ textTransform: "capitalize", marginTop: "2px" }}>
+                      {venta?.metodo_pago || "Efectivo"}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>Estado: </span>
+                  <div>
+                    <span className="badge badge-success" style={{ marginTop: "2px" }}>
+                      {venta?.estado || "Completada"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <h4 style={{ fontSize: "13px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "8px" }}>
+                Productos en la Boleta
+              </h4>
+              <div className="table-responsive" style={{ marginBottom: "16px" }}>
+                <table className="table" style={{ fontSize: "12px", minWidth: "360px" }}>
+                  <thead>
+                    <tr>
+                      <th>Producto</th>
+                      <th style={{ textAlign: "center" }}>Cant.</th>
+                      <th style={{ textAlign: "right" }}>Precio</th>
+                      <th style={{ textAlign: "right" }}>Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items && items.length > 0 ? (
+                      items.map((it: any, idx: number) => {
+                        const imgUrl = it.imagen_url || it.imagen || it.p_imagen_url || it.producto?.imagen_url || it.producto?.imagen;
+                        const isWeight = Number(it.cantidad) % 1 !== 0;
+                        return (
+                          <tr key={idx}>
+                            <td>
+                              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                {imgUrl ? (
+                                  <img
+                                    src={imgUrl}
+                                    alt=""
+                                    referrerPolicy="no-referrer"
+                                    style={{
+                                      width: "36px",
+                                      height: "36px",
+                                      borderRadius: "8px",
+                                      objectFit: "cover",
+                                      flexShrink: 0,
+                                      border: "1px solid var(--border-subtle)",
+                                      backgroundColor: "rgba(255,255,255,0.04)",
+                                    }}
+                                    onError={(e: any) => {
+                                      e.currentTarget.style.display = "none";
+                                      if (e.currentTarget.nextElementSibling) {
+                                        e.currentTarget.nextElementSibling.style.display = "flex";
+                                      }
+                                    }}
+                                  />
+                                ) : null}
+                                <div
+                                  style={{
+                                    width: "36px",
+                                    height: "36px",
+                                    borderRadius: "8px",
+                                    backgroundColor: "rgba(255,255,255,0.05)",
+                                    border: "1px solid var(--border-subtle)",
+                                    display: imgUrl ? "none" : "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    flexShrink: 0,
+                                    color: "var(--text-muted)",
+                                  }}
+                                >
+                                  <Package size={17} />
+                                </div>
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontWeight: "600", color: "#f8fafc" }}>
+                                    {it.nombre || it.producto_nombre || "Producto"}
+                                  </div>
+                                  {(it.codigo || it.producto_codigo) && (
+                                    <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                                      Cód: {it.codigo || it.producto_codigo}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td style={{ textAlign: "center", fontWeight: "600", whiteSpace: "nowrap" }}>
+                              {it.cantidad} {isWeight ? "kg" : "u."}
+                            </td>
+                            <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                              {formatMoney(it.precio_unitario || it.precio)}
+                            </td>
+                            <td style={{ textAlign: "right", fontWeight: "700", color: "#f8fafc", whiteSpace: "nowrap" }}>
+                              {formatMoney(it.subtotal || (Number(it.cantidad || 1) * Number(it.precio_unitario || it.precio || 0)))}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)" }}>
+                          Sin detalle de productos desglosados.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div
+                style={{
+                  borderTop: "1px solid var(--border-subtle)",
+                  paddingTop: "14px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "6px",
+                  fontSize: "13px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-secondary)" }}>
+                  <span>Subtotal Neto:</span>
+                  <span>{formatMoney(venta?.subtotal)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)" }}>
+                  <span>IVA (19%):</span>
+                  <span>{formatMoney(venta?.iva)}</span>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "17px",
+                    fontWeight: "800",
+                    color: "#34d399",
+                    borderTop: "1px dashed var(--border-subtle)",
+                    paddingTop: "8px",
+                    marginTop: "4px",
+                  }}
+                >
+                  <span>Total Pagado:</span>
+                  <span>{formatMoney(venta?.total)}</span>
+                </div>
+              </div>
+
+              <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end" }}>
+                <button onClick={() => setSelectedVenta(null)} className="btn btn-secondary btn-sm" style={{ width: "100%" }}>
+                  Cerrar
+                </button>
               </div>
             </div>
-
-            <div style={{ marginTop: "24px", display: "flex", justifyContent: "flex-end" }}>
-              <button onClick={() => setSelectedVenta(null)} className="btn btn-secondary">
-                Cerrar
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

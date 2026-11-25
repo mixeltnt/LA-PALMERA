@@ -154,6 +154,8 @@ export const productRepository = {
 
     const catId = data.categoriaId ?? data.categoria ?? null;
     const provId = data.proveedorId ?? data.proveedorPrincipal ?? null;
+    const cleanCatId = catId && Number(catId) > 0 ? Number(catId) : null;
+    const cleanProvId = provId && Number(provId) > 0 ? Number(provId) : null;
 
     const res = await db.execute(
       `INSERT INTO productos (
@@ -167,12 +169,12 @@ export const productRepository = {
         data.nombre ? String(data.nombre).trim() : 'Producto',
         data.descripcion || null,
         data.marca || null,
-        catId ? Number(catId) : null,
-        provId ? Number(provId) : null,
-        data.precioVenta ?? 0,
-        data.precioCosto ?? 0,
-        data.stockActual ?? 0,
-        data.stockMinimo ?? 5,
+        cleanCatId,
+        cleanProvId,
+        Number(data.precioVenta) || 0,
+        Number(data.precioCosto ?? data.precioCompra) || 0,
+        Number(data.stockActual) || 0,
+        Number(data.stockMinimo) || 5,
         data.unidadMedida || 'unidad',
         data.permiteDecimales ? 1 : 0,
         data.activo !== false ? 1 : 0,
@@ -181,12 +183,56 @@ export const productRepository = {
       ]
     );
 
-    const newId = res.lastInsertId;
-    const created = await this.getById(newId);
+    // Recuperación ultra-segura del nuevo ID
+    let newId = Number(res?.lastInsertId || 0);
+    if (!newId || newId <= 0) {
+      try {
+        const rowIdRes = await db.select<any>('SELECT last_insert_rowid() as id');
+        if (rowIdRes && rowIdRes[0]?.id) {
+          newId = Number(rowIdRes[0].id);
+        }
+      } catch {}
+    }
+    if (!newId || newId <= 0) {
+      try {
+        const byCode = await this.getByCode(cleanCode);
+        if (byCode) newId = Number(byCode.id);
+      } catch {}
+    }
+
+    let created = newId > 0 ? await this.getById(newId) : null;
+    if (!created) {
+      created = {
+        id: newId || 0,
+        codigo: cleanCode,
+        codigoBarras: data.codigoBarras ? String(data.codigoBarras).trim() : null,
+        nombre: data.nombre ? String(data.nombre).trim() : 'Producto',
+        descripcion: data.descripcion || null,
+        marca: data.marca || null,
+        categoriaId: cleanCatId,
+        categoriaNombre: null,
+        proveedorId: cleanProvId,
+        proveedorNombre: null,
+        precioVenta: Number(data.precioVenta) || 0,
+        precioCosto: Number(data.precioCosto ?? data.precioCompra) || 0,
+        stockActual: Number(data.stockActual) || 0,
+        stockMinimo: Number(data.stockMinimo) || 5,
+        unidadMedida: data.unidadMedida || 'unidad',
+        permiteDecimales: Boolean(data.permiteDecimales),
+        activo: data.activo !== false,
+        imagenUrl: data.imagenUrl || null,
+        aplicaIva: data.aplicaIva !== false,
+      };
+    }
 
     // Encolar para sincronización
-    await syncService.enqueueChange('productos', newId, 'INSERT', created);
-    return created!;
+    try {
+      if (newId > 0) {
+        await syncService.enqueueChange('productos', newId, 'INSERT', created);
+      }
+    } catch {}
+
+    return created;
   },
 
   async update(id: string | number, data: Partial<Product> & Record<string, any>): Promise<Product> {

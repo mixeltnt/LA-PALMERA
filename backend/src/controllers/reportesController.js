@@ -18,11 +18,11 @@ export const reportesController = {
 
       if (desde) {
         params.push(desde);
-        sql += ` AND DATE(v.fecha) >= $${params.length}`;
+        sql += ` AND DATE(v.fecha AT TIME ZONE 'America/Santiago') >= $${params.length}`;
       }
       if (hasta) {
         params.push(hasta);
-        sql += ` AND DATE(v.fecha) <= $${params.length}`;
+        sql += ` AND DATE(v.fecha AT TIME ZONE 'America/Santiago') <= $${params.length}`;
       }
       if (cajeroId) {
         params.push(Number(cajeroId));
@@ -54,11 +54,11 @@ export const reportesController = {
       const paramsResumen = [];
       if (desde) {
         paramsResumen.push(desde);
-        sqlResumen += ` AND DATE(v.fecha) >= $${paramsResumen.length}`;
+        sqlResumen += ` AND DATE(v.fecha AT TIME ZONE 'America/Santiago') >= $${paramsResumen.length}`;
       }
       if (hasta) {
         paramsResumen.push(hasta);
-        sqlResumen += ` AND DATE(v.fecha) <= $${paramsResumen.length}`;
+        sqlResumen += ` AND DATE(v.fecha AT TIME ZONE 'America/Santiago') <= $${paramsResumen.length}`;
       }
 
       const resumenRes = await query(sqlResumen, paramsResumen);
@@ -83,23 +83,24 @@ export const reportesController = {
           vi.codigo,
           vi.nombre,
           p.categoria_nombre,
+          COALESCE(MAX(p.imagen_url), '') as imagen_url,
           SUM(vi.cantidad) as total_unidades,
           SUM(vi.subtotal) as total_recaudado,
           COALESCE(AVG(vi.precio_unitario), 0) as precio_promedio
         FROM venta_items vi
         JOIN ventas v ON vi.venta_id = v.id
-        LEFT JOIN productos p ON vi.codigo = p.codigo
+        LEFT JOIN productos p ON (vi.producto_id = p.id OR (vi.codigo IS NOT NULL AND vi.codigo != '' AND vi.codigo = p.codigo))
         WHERE v.estado = 'completada'
       `;
       const params = [];
 
       if (desde) {
         params.push(desde);
-        sql += ` AND DATE(v.fecha) >= $${params.length}`;
+        sql += ` AND DATE(v.fecha AT TIME ZONE 'America/Santiago') >= $${params.length}`;
       }
       if (hasta) {
         params.push(hasta);
-        sql += ` AND DATE(v.fecha) <= $${params.length}`;
+        sql += ` AND DATE(v.fecha AT TIME ZONE 'America/Santiago') <= $${params.length}`;
       }
 
       params.push(Number(limit));
@@ -167,11 +168,11 @@ export const reportesController = {
 
       if (desde) {
         params.push(desde);
-        sql += ` AND DATE(c.fecha) >= $${params.length}`;
+        sql += ` AND DATE(c.fecha AT TIME ZONE 'America/Santiago') >= $${params.length}`;
       }
       if (hasta) {
         params.push(hasta);
-        sql += ` AND DATE(c.fecha) <= $${params.length}`;
+        sql += ` AND DATE(c.fecha AT TIME ZONE 'America/Santiago') <= $${params.length}`;
       }
       if (proveedorId) {
         params.push(Number(proveedorId));

@@ -1,7 +1,9 @@
-﻿// Cliente API Centralizado para el Panel Web Administrativo La Palmera POS
+// Cliente API Centralizado para el Panel Web Administrativo La Palmera POS
 const STORAGE_URL_KEY = "lapalmera_admin_api_url";
 const STORAGE_TOKEN_KEY = "lapalmera_admin_token";
 const STORAGE_USER_KEY = "lapalmera_admin_user";
+
+export const DEFAULT_CLOUD_API = "https://lapalmera-pos-api.onrender.com/api";
 
 export function getBaseApiUrl(): string {
   if (typeof window !== "undefined") {
@@ -9,12 +11,25 @@ export function getBaseApiUrl(): string {
     if (saved && saved.trim()) {
       return saved.trim().replace(/\/+$/, "");
     }
+    // Si corre en navegador local (desarrollo) fuera de Capacitor, usar el backend local :4000 (conectado a Neon)
+    const isCapacitorNative = Boolean((window as any).Capacitor?.isNativePlatform?.());
+    if (
+      !isCapacitorNative &&
+      (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+    ) {
+      return "http://localhost:4000/api";
+    }
     // Si corre en la nube (Render / producción), usar el mismo origen
-    if (window.location.hostname && !window.location.hostname.includes("localhost") && !window.location.hostname.includes("127.0.0.1")) {
+    if (
+      window.location.hostname &&
+      !window.location.hostname.includes("localhost") &&
+      !window.location.hostname.includes("127.0.0.1")
+    ) {
       return `${window.location.origin}/api`;
     }
   }
-  return "http://localhost:4000/api";
+  // En apps móviles Android (Capacitor/WebView) o standalone, apuntar directamente a Render Cloud
+  return DEFAULT_CLOUD_API;
 }
 
 export function setBaseApiUrl(url: string): void {
@@ -106,7 +121,7 @@ export const adminApi = {
   getVentasRecientes: (limit = 10) => request<any[]>(`/dashboard/ventas-recientes?limit=${limit}`),
 
   // Ventas (PostgreSQL Neon)
-  getVentas: (params?: { page?: number; limit?: number; search?: string; desde?: string; hasta?: string; metodo_pago?: string }) => {
+  getVentas: async (params?: { page?: number; limit?: number; search?: string; desde?: string; hasta?: string; metodo_pago?: string }) => {
     const q = new URLSearchParams();
     if (params?.page) q.append("page", params.page.toString());
     if (params?.limit) q.append("limit", params.limit.toString());
@@ -114,51 +129,96 @@ export const adminApi = {
     if (params?.desde) q.append("desde", params.desde);
     if (params?.hasta) q.append("hasta", params.hasta);
     if (params?.metodo_pago) q.append("metodo_pago", params.metodo_pago);
-    return request<{ ventas: any[]; paginacion: any }>(`/admin/ventas?${q.toString()}`);
+    const res: any = await request<any>(`/admin/ventas?${q.toString()}`);
+    return {
+      ventas: res?.data || res?.ventas || [],
+      paginacion: res?.pagination || res?.paginacion || { page: 1, totalPages: 1, total: 0 },
+    };
   },
-  getVentaDetalle: (id: string | number) => request<{ venta: any; items: any[]; pagos: any[] }>(`/admin/ventas/${id}`),
+  getVentaDetalle: async (id: string | number) => {
+    const res = await request<any>(`/admin/ventas/${id}`);
+    const venta = res?.venta || res?.data || res;
+    const items = res?.items || res?.data?.items || [];
+    const pagos = res?.pagos || res?.data?.pagos || [];
+    return {
+      venta,
+      items,
+      pagos,
+      data: res?.data || venta,
+    };
+  },
 
   // Productos & Inventario
-  getProductos: (params?: { page?: number; limit?: number; search?: string; categoria_id?: number | string }) => {
+  getProductos: async (params?: { page?: number; limit?: number; search?: string; categoria_id?: number | string }) => {
     const q = new URLSearchParams();
     if (params?.page) q.append("page", params.page.toString());
     if (params?.limit) q.append("limit", params.limit.toString());
     if (params?.search) q.append("search", params.search);
     if (params?.categoria_id) q.append("categoria_id", params.categoria_id.toString());
-    return request<{ productos: any[]; paginacion: any }>(`/admin/productos?${q.toString()}`);
+    const res: any = await request<any>(`/admin/productos?${q.toString()}`);
+    return {
+      productos: res?.data || res?.productos || [],
+      paginacion: res?.pagination || res?.paginacion || { page: 1, totalPages: 1, total: 0 },
+    };
   },
-  getCategorias: () => request<{ categorias: any[] }>("/admin/categorias"),
+  getCategorias: async () => {
+    const res: any = await request<any>("/admin/categorias");
+    return {
+      categorias: res?.data || res?.categorias || (Array.isArray(res) ? res : []),
+    };
+  },
 
   // Clientes & Cuentas Corrientes
-  getClientes: (params?: { page?: number; limit?: number; search?: string }) => {
+  getClientes: async (params?: { page?: number; limit?: number; search?: string }) => {
     const q = new URLSearchParams();
     if (params?.page) q.append("page", params.page.toString());
     if (params?.limit) q.append("limit", params.limit.toString());
     if (params?.search) q.append("search", params.search);
-    return request<{ clientes: any[]; paginacion: any }>(`/admin/clientes?${q.toString()}`);
+    const res: any = await request<any>(`/admin/clientes?${q.toString()}`);
+    return {
+      clientes: res?.data || res?.clientes || [],
+      paginacion: res?.pagination || res?.paginacion || { page: 1, totalPages: 1, total: 0 },
+    };
   },
   getClienteMovimientos: (id: string | number) =>
     request<{ cliente: any; movimientos: any[] }>(`/admin/clientes/${id}/movimientos`),
 
   // Caja & Sesiones
-  getCajaSesiones: (params?: { page?: number; limit?: number }) => {
+  getCajaSesiones: async (params?: { page?: number; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.page) q.append("page", params.page.toString());
     if (params?.limit) q.append("limit", params.limit.toString());
-    return request<{ sesiones: any[]; paginacion: any }>(`/admin/caja/sesiones?${q.toString()}`);
+    const res: any = await request<any>(`/admin/caja/sesiones?${q.toString()}`);
+    return {
+      sesiones: res?.data || res?.sesiones || [],
+      paginacion: res?.pagination || res?.paginacion || { page: 1, totalPages: 1, total: 0 },
+    };
   },
   getCajaMovimientos: (id: string | number) =>
     request<{ sesion: any; movimientos: any[] }>(`/admin/caja/sesiones/${id}/movimientos`),
 
   // Reportes
-  getReportePeriodo: (desde: string, hasta: string) =>
-    request<any>(`/reportes/periodo?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`),
-  getTopProductos: (desde?: string, hasta?: string, limit = 10) => {
+  getReportePeriodo: async (desde: string, hasta: string) => {
+    try {
+      const res: any = await request<any>(`/reportes/ventas?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`);
+      return res?.resumen || res?.data || res || {};
+    } catch {
+      const fallback: any = await request<any>(`/reportes/periodo?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`);
+      return fallback?.resumen || fallback?.data || fallback || {};
+    }
+  },
+  getTopProductos: async (desde?: string, hasta?: string, limit = 10) => {
     const q = new URLSearchParams();
     if (desde) q.append("desde", desde);
     if (hasta) q.append("hasta", hasta);
     q.append("limit", limit.toString());
-    return request<any[]>(`/reportes/top-productos?${q.toString()}`);
+    try {
+      const res: any = await request<any>(`/reportes/productos-top?${q.toString()}`);
+      return res?.data || (Array.isArray(res) ? res : []);
+    } catch {
+      const fallback: any = await request<any>(`/reportes/top-productos?${q.toString()}`);
+      return fallback?.data || (Array.isArray(fallback) ? fallback : []);
+    }
   },
 
   // Estado de Sincronización

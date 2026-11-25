@@ -7,6 +7,12 @@ import App from "./App";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "./index.css";
 
+// Aplicar tema guardado en localStorage al inicio
+try {
+  const savedTheme = localStorage.getItem("lapalmera_theme") || "dark";
+  document.documentElement.setAttribute("data-theme", savedTheme);
+} catch {}
+
 // Eliminar cualquier residuo de Service Worker o caché que cause pantalla blanca en WebView2
 if (typeof window !== "undefined") {
   if ("serviceWorker" in navigator) {

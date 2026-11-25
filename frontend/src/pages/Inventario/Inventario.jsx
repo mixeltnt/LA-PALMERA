@@ -335,7 +335,33 @@ function Inventario() {
                               {producto.codigo || "—"}
                             </td>
                             <td className="fw-semibold">
-                              {producto.nombre || "—"}
+                              <div className="d-flex align-items-center gap-2">
+                                {(producto.imagen || producto.imagenUrl) ? (
+                                  <img
+                                    src={producto.imagen || producto.imagenUrl}
+                                    alt={producto.nombre}
+                                    className="rounded border flex-shrink-0 bg-white shadow-xs"
+                                    style={{ width: "34px", height: "34px", objectFit: "cover" }}
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = "none";
+                                      if (e.currentTarget.nextElementSibling) {
+                                        e.currentTarget.nextElementSibling.style.display = "flex";
+                                      }
+                                    }}
+                                  />
+                                ) : null}
+                                <div
+                                  className="rounded border bg-light text-secondary align-items-center justify-content-center flex-shrink-0 shadow-xs"
+                                  style={{
+                                    width: "34px",
+                                    height: "34px",
+                                    display: (producto.imagen || producto.imagenUrl) ? "none" : "flex",
+                                  }}
+                                >
+                                  <i className="bi bi-box-seam" style={{ fontSize: "0.9rem" }}></i>
+                                </div>
+                                <span>{producto.nombre || "—"}</span>
+                              </div>
                             </td>
                             <td>{categoriaNombre}</td>
                             <td className="text-center fw-bold">{stockActual}</td>

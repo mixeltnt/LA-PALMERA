@@ -22,8 +22,10 @@ export function normalizeApiUrl(rawUrl) {
   return clean.replace(/\/+$/, "");
 }
 
+export const DEFAULT_CLOUD_API_URL = "https://lapalmera-pos-api.onrender.com/api";
+
 export function getApiBaseUrl() {
-  if (typeof window === "undefined") return "/api";
+  if (typeof window === "undefined") return DEFAULT_CLOUD_API_URL;
 
   if (memoryApiBaseUrl) {
     return memoryApiBaseUrl;
@@ -40,17 +42,15 @@ export function getApiBaseUrl() {
     }
   } catch {}
 
-  const isTauri =
-    "__TAURI_INTERNALS__" in window ||
-    window.location.protocol === "tauri:" ||
-    window.location.hostname === "tauri.localhost" ||
-    window.location.protocol === "file:";
-
-  if (isTauri) {
+  // En navegador local (desarrollo), usar el backend local :4000 (conectado a Neon) para pruebas inmediatas;
+  // en la app de escritorio Tauri (.exe) o producción, usar Render Cloud automáticamente.
+  const isTauri = "__TAURI_INTERNALS__" in window;
+  const host = window.location?.hostname || "";
+  if (!isTauri && (host === "localhost" || host === "127.0.0.1")) {
     return "http://localhost:4000/api";
   }
 
-  return "/api";
+  return DEFAULT_CLOUD_API_URL;
 }
 
 export function setApiBaseUrl(newUrl) {
