@@ -84,7 +84,7 @@ export const ReportesView: React.FC = () => {
           <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "8px" }}>
             Ingresos Totales en Período
           </div>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#34d399", letterSpacing: "-0.5px" }}>
+          <div style={{ fontSize: "clamp(17px, 4.8vw, 26px)", fontWeight: "800", color: "#34d399", letterSpacing: "-0.5px", overflowWrap: "anywhere" }}>
             {formatMoney(periodoData?.totalMonto ?? periodoData?.total_monto ?? 0)}
           </div>
           <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "6px" }}>
@@ -96,7 +96,7 @@ export const ReportesView: React.FC = () => {
           <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "8px" }}>
             Boletas Emitidas
           </div>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#f8fafc", letterSpacing: "-0.5px" }}>
+          <div style={{ fontSize: "clamp(17px, 4.8vw, 26px)", fontWeight: "800", color: "#f8fafc", letterSpacing: "-0.5px", overflowWrap: "anywhere" }}>
             {periodoData?.totalVentas ?? periodoData?.total_transacciones ?? 0}
           </div>
           <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "6px" }}>
@@ -108,7 +108,7 @@ export const ReportesView: React.FC = () => {
           <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "8px" }}>
             Subtotal Neto Estimado
           </div>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#fbbf24", letterSpacing: "-0.5px" }}>
+          <div style={{ fontSize: "clamp(17px, 4.8vw, 26px)", fontWeight: "800", color: "#fbbf24", letterSpacing: "-0.5px", overflowWrap: "anywhere" }}>
             {formatMoney(
               periodoData?.totalSubtotal ??
               Math.round((Number(periodoData?.totalMonto ?? periodoData?.total_monto ?? 0)) / 1.19)
@@ -123,7 +123,7 @@ export const ReportesView: React.FC = () => {
           <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "8px" }}>
             IVA Débito Fiscal (19%)
           </div>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#38bdf8", letterSpacing: "-0.5px" }}>
+          <div style={{ fontSize: "clamp(17px, 4.8vw, 26px)", fontWeight: "800", color: "#38bdf8", letterSpacing: "-0.5px", overflowWrap: "anywhere" }}>
             {formatMoney(
               periodoData?.totalIva ??
               Math.round((Number(periodoData?.totalMonto ?? periodoData?.total_monto ?? 0)) - ((Number(periodoData?.totalMonto ?? periodoData?.total_monto ?? 0)) / 1.19))

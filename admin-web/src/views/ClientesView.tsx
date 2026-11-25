@@ -55,15 +55,7 @@ export const ClientesView: React.FC = () => {
     <div className="page-container">
       {/* Search Bar */}
       <div className="glass-card" style={{ padding: "18px 20px" }}>
-        <form
-          onSubmit={handleSearch}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr auto",
-            gap: "12px",
-            alignItems: "end",
-          }}
-        >
+        <form onSubmit={handleSearch} className="filter-grid">
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "6px" }}>
               Buscar por Nombre, RUT o Teléfono

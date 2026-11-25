@@ -143,7 +143,7 @@ export const DashboardView: React.FC<DashboardProps> = ({ onViewVenta, onNavigat
               <DollarSign size={19} color="#10b981" />
             </div>
           </div>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#f8fafc", letterSpacing: "-0.5px" }}>
+          <div style={{ fontSize: "clamp(17px, 4.8vw, 26px)", fontWeight: "800", color: "#f8fafc", letterSpacing: "-0.5px", overflowWrap: "anywhere" }}>
             {formatMoney(resumen?.montoHoy)}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "8px", fontSize: "12px", color: "#34d399" }}>
@@ -172,7 +172,7 @@ export const DashboardView: React.FC<DashboardProps> = ({ onViewVenta, onNavigat
               <TrendingUp size={19} color="#f59e0b" />
             </div>
           </div>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#f8fafc", letterSpacing: "-0.5px" }}>
+          <div style={{ fontSize: "clamp(17px, 4.8vw, 26px)", fontWeight: "800", color: "#f8fafc", letterSpacing: "-0.5px", overflowWrap: "anywhere" }}>
             {formatMoney(resumen?.montoMes)}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "8px", fontSize: "12px", color: "var(--text-secondary)" }}>
@@ -201,7 +201,7 @@ export const DashboardView: React.FC<DashboardProps> = ({ onViewVenta, onNavigat
               <CreditCard size={19} color="#38bdf8" />
             </div>
           </div>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#f8fafc", letterSpacing: "-0.5px" }}>
+          <div style={{ fontSize: "clamp(17px, 4.8vw, 26px)", fontWeight: "800", color: "#f8fafc", letterSpacing: "-0.5px", overflowWrap: "anywhere" }}>
             {formatMoney(resumen?.ticketPromedio)}
           </div>
           <div style={{ marginTop: "8px", fontSize: "12px", color: "var(--text-muted)" }}>
@@ -229,7 +229,7 @@ export const DashboardView: React.FC<DashboardProps> = ({ onViewVenta, onNavigat
               <Users size={19} color="#fb7185" />
             </div>
           </div>
-          <div style={{ fontSize: "26px", fontWeight: "800", color: "#fb7185", letterSpacing: "-0.5px" }}>
+          <div style={{ fontSize: "clamp(17px, 4.8vw, 26px)", fontWeight: "800", color: "#fb7185", letterSpacing: "-0.5px", overflowWrap: "anywhere" }}>
             {formatMoney(resumen?.totalDeudaClientes)}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "8px", fontSize: "12px", color: "var(--text-secondary)" }}>

@@ -137,7 +137,7 @@ export const ConfiguracionView: React.FC = () => {
           Personaliza los colores, iluminación y estilo visual del Panel Administrativo según tu preferencia.
         </p>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "14px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(260px, 100%), 1fr))", gap: "14px" }}>
           {THEMES.map((theme) => {
             const isSelected = currentTheme === theme.id;
             return (
